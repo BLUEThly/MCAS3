@@ -1,419 +1,378 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>新規ミームコイン データ収集・分析支援（Ethereum）— fixed</title>
-<style>
-  :root { --bg:#0b0f14; --card:#121820; --muted:#8aa1b1; --acc:#5cc8ff; --good:#37d683; --warn:#ffb44d; --bad:#ff5e7a; }
-  body{margin:0;background:var(--bg);color:#eaf1f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-  header{padding:18px 20px;border-bottom:1px solid #1b2733;background:#0f141b;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-  header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px}
-  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:16px 16px 0}
-  .control{display:flex;flex-direction:column;gap:6px;background:var(--card);border:1px solid #1a2430;border-radius:10px;padding:12px}
-  label{font-size:12px;color:var(--muted)}
-  input,select,button,textarea{border-radius:8px;border:1px solid #2a394a;background:#0c1218;color:#eaf1f5;padding:8px 10px;font-size:14px;outline:none}
-  textarea{min-height:64px;resize:vertical}
-  button.action{background:linear-gradient(180deg,#1c9cff,#0677ff);border:none;font-weight:700;cursor:pointer}
-  button.secondary{background:#17212b;border:1px solid #263445}
-  .actions{display:flex;gap:10px;padding:12px 16px 16px;flex-wrap:wrap}
-  .log{padding:12px 16px 18px}
-  .log h3{margin:6px 0 10px;font-size:13px;color:var(--muted)}
-  .console{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-           font-size:12px;background:#0a0f14;border-top:1px solid #1a2430;max-height:220px;overflow:auto;border-bottom:1px solid #1a2430}
-  .console .row{padding:6px 10px;border-top:1px solid #0f151c;white-space:pre-wrap}
-  .console .warn{color:var(--warn)}
-  .console .ok{color:var(--good)}
-  .console .err{color:var(--bad)}
-  .results{padding:8px 16px 40px}
-  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden}
-  thead{background:#0e151c;font-size:12px;color:var(--muted)}
-  th,td{padding:10px;border-bottom:1px solid #1a2430;font-size:13px;vertical-align:top}
-  tr:hover td{background:#111925}
-  .pill{padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid #203142;background:#0b1219;color:#9db7c8}
-  .link{color:var(--acc);text-decoration:none}
-  footer{padding:12px 16px;color:#9bb1bf;font-size:12px;border-top:1px solid #1b2733;background:#0f141b}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新規ミームコイン データ収集・分析支援（Ethereum）- latest</title>
+  <style>
+    :root { color-scheme: dark light; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; line-height: 1.45; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1100px; }
+    label { display: block; font-size: 12px; color: #8aa1b1; margin-bottom: 6px; }
+    input[type="text"], input[type="date"], input[type="number"] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444; background: transparent; color: inherit; }
+    .row { grid-column: span 2; }
+    .actions { display: flex; gap: 12px; margin: 16px 0; }
+    button { padding: 10px 16px; border-radius: 8px; border: 1px solid #555; background: #2d6cdf; color: #fff; cursor: pointer; }
+    button.secondary { background: transparent; color: inherit; }
+    #log { white-space: pre-wrap; background: #111; border: 1px solid #333; border-radius: 8px; padding: 10px; min-height: 140px; overflow: auto; max-width: 1100px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #333; padding: 8px; font-size: 13px; vertical-align: top; }
+    th { position: sticky; top: 0; background: #0b0b0b; }
+    .muted { color: #8aa1b1; font-size: 12px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+  </style>
 </head>
 <body>
-  <header>
-    <h1>新規ミームコイン データ収集・分析支援（Ethereum）— fixed</h1>
-    <span class="pill" id="statusPill">idle</span>
-  </header>
+  <h1>新規ミームコイン データ収集・分析支援 <span class="muted">(Ethereum / latest)</span></h1>
 
-  <section class="controls">
-    <div class="control">
+  <section class="grid">
+    <div>
       <label>観測期間の開始日</label>
-      <input type="date" id="startDate">
+      <input type="date" id="startDate" />
+    </div>
+    <div>
       <label>観測期間の終了日</label>
-      <input type="date" id="endDate">
+      <input type="date" id="endDate" />
     </div>
-
-    <div class="control">
+    <div>
       <label>急騰判定 期間（日）</label>
-      <input type="number" id="pumpDays" value="14" min="2" max="60">
+      <input type="number" id="pumpDays" value="14" min="1" step="1" />
+    </div>
+    <div>
       <label>急騰判定 倍率（x）</label>
-      <input type="number" id="multiplier" value="3" step="0.1" min="1.1">
+      <input type="number" id="pumpMult" value="3" min="1" step="0.1" />
     </div>
-
-    <div class="control">
+    <div>
       <label>LPロック閾値（%）</label>
-      <input type="number" id="lpThreshold" value="80" step="1" min="0" max="100">
-      <label>最大表示件数（UIのみ）</label>
-      <input type="number" id="maxTokens" value="100" step="10" min="10">
+      <input type="number" id="lpThreshold" value="80" min="0" max="100" step="1" />
     </div>
-
-    <div class="control">
-      <label>（任意）Cloudflare Workers プロキシURL</label>
-      <input type="text" id="workerUrl" placeholder="https://cors-proxy.anchobi975.workers.dev/?url=">
-      <small style="color:#8aa1b1">モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
+    <div>
+      <label>最大表示件数（UIのみ）</label>
+      <input type="number" id="maxRows" value="150" min="10" step="10" />
+    </div>
+    <div class="row">
+      <label>(任意) Cloudflare Workers プロキシURL</label>
+      <input type="text" id="workerUrl" placeholder="https://YOUR-NAME.workers.dev/?url=" />
+      <small class="muted">モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
     </div>
   </section>
 
   <section class="actions">
-    <button class="action" id="runBtn">分析開始</button>
-    <button class="secondary" id="csvBtn" disabled>CSVをダウンロード</button>
+    <button id="runBtn">分析開始</button>
+    <button id="csvBtn" class="secondary" disabled>CSVをダウンロード</button>
   </section>
 
-  <section class="log">
-    <h3>Console Messages</h3>
-    <div class="console" id="console"></div>
-  </section>
+  <div id="log" aria-live="polite"></div>
 
-  <section class="results">
-    <table id="resultTable">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Token</th>
-          <th>Address</th>
-          <th>Pump (close)</th>
-          <th>LP lock / proof</th>
-          <th>Quote</th>
-          <th>Links (proof)</th>
-          <th>data_mode</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-  <footer>
-    © 2025 — Ethereum only（他チェーンは拡張容易な設計） / データ: DexScreener・GeckoTerminal・Ethplorer（無料エンドポイント）
-  </footer>
+  <table id="tbl" style="display:none">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Token</th>
+        <th>Address</th>
+        <th>Pool</th>
+        <th>Dex</th>
+        <th>Spike</th>
+        <th>×倍率</th>
+        <th>基準期間</th>
+        <th>LP(推定)%</th>
+        <th>h24%</th>
+        <th>流動性USD</th>
+        <th>Links</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
 <script>
-// ====== CONFIG ======
-const KNOWN_BURN = new Set([
-  '0x0000000000000000000000000000000000000000',
-  '0x000000000000000000000000000000000000dead'
-].map(a=>a.toLowerCase()));
+const $ = (s)=>document.querySelector(s);
+const logEl = $("#log");
+function log(msg){ const t = typeof msg==="string" ? msg : JSON.stringify(msg); logEl.textContent += (t + "\n"); logEl.scrollTop = logEl.scrollHeight; }
 
-const KNOWN_LOCKERS = new Map([
-  ['0x663A5C229c09b049E36dCc11a9B0d4a8Eb9db214', 'Unicrypt'],   // UNCX V2 Locker
-  ['0xE2fE530C047f2d85298b07D9333C05737f1435fB', 'TeamFinance'] // TeamFinance V2
-].map(([a,n])=>[a.toLowerCase(), n]));
-
-// ====== UTIL ======
-const $ = sel => document.querySelector(sel);
-function log(msg, cls='warn'){const row=document.createElement('div');row.className='row '+cls;row.textContent=msg;$('#console').prepend(row);}
-function setStatus(t){ $('#statusPill').textContent=t; }
-
-function getEpoch(dateInput){
-  if(!dateInput) return null;
-  const d = new Date(dateInput);
-  if(Number.isNaN(+d)) return null;
-  return Math.floor(d.getTime()/1000);
-}
-
-// localStorage for Worker URL
-(function(){
-  const saved = localStorage.getItem('cf_worker_url') || '';
-  $('#workerUrl').value = saved;
-  $('#workerUrl').addEventListener('change', e => {
-    localStorage.setItem('cf_worker_url', e.target.value.trim());
-  });
+// ---- Dates init (default: last 14d) ----
+(function setDates(){
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(end.getTime() - 14*86400*1000);
+  $("#startDate").value = start.toISOString().slice(0,10);
+  $("#endDate").value   = end.toISOString().slice(0,10);
 })();
 
-async function fetchJsonWithFallback(url){
-  const worker = ($('#workerUrl').value || '').trim();
-  const tries = [
-    worker ? `${worker}${encodeURIComponent(url)}` : null,
-    `https://cors.isomorphic-git.org/${url}`,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `https://thingproxy.freeboard.io/fetch/${url}`,
-    url
-  ].filter(Boolean);
+// ---- Persist worker URL ----
+const workerInput = $("#workerUrl");
+workerInput.value = localStorage.getItem("workerUrl") || workerInput.value;
+workerInput.addEventListener("change", ()=>localStorage.setItem("workerUrl", workerInput.value.trim()));
 
-  let lastErr = null;
-  for (const u of tries){
+// ---- Utils ----
+function normUnix(x){
+  const n = Number(x);
+  if(!Number.isFinite(n)) return null;
+  return n > 1e12 ? Math.floor(n/1000) : Math.floor(n); // ms→s を吸収
+}
+function normalizeWorker(base){
+  if(!base) return "";
+  let u = base.trim();
+  if(!u.includes("?")) { if(!u.endsWith("/")) u+="/"; u += "?url="; }
+  else if(!u.includes("url=")) { if(!u.endsWith("&") && !u.endsWith("?")) u+="&"; u+="url="; }
+  return u;
+}
+async function fetchJSON(rawUrl){
+  const worker = normalizeWorker(($("#workerUrl").value||"").trim());
+  const tries = [];
+  if(worker) tries.push(worker + encodeURIComponent(rawUrl)); // Worker first
+  tries.push(rawUrl); // direct (GitHub PagesはOKのことが多い)
+  for(const u of tries){
     try{
-      const res = await fetch(u, { method:'GET' });
+      const res = await fetch(u, {method:"GET", mode:"cors"});
       if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const txt = await res.text();
-      let data = null;
-      try{ data = JSON.parse(txt); }
-      catch(e){ data = JSON.parse(txt.replace(/^[^\[{]+/,'')); }
-      return data;
-    }catch(e){
-      log(`fetch fallback failed: ${u} ${e.message}`,'warn');
-      lastErr = e;
-      continue;
-    }
+      const ct = res.headers.get("content-type")||"";
+      if(!ct.includes("application/json")) { const tx = await res.text(); try { return JSON.parse(tx); } catch { throw new Error("Non-JSON"); } }
+      return await res.json();
+    }catch(e){ log(`fetch failed: ${u} ${e.message}`); }
   }
-  throw lastErr || new Error('Fetch failed');
+  throw new Error("All fetch attempts failed: " + rawUrl);
 }
 
-// ====== CORE FETCHERS ======
-async function getNewTokens(params){
-  // DexScreener latest token profiles
-  const url = 'https://api.dexscreener.com/token-profiles/latest/v1';
-  let data;
-  try{
-    data = await fetchJsonWithFallback(url);
-  }catch(e){
-    log(`DexScreener API error, using fallback: ${e.message}`,'warn');
-    throw e;
+// ---- Data sources (GeckoTerminal / DexScreener / Ethplorer) ----
+// GeckoTerminal: trending pools by network (eth)
+async function gtTrending(limit=100){
+  const url = `https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?include=base_token%2Cquote_token%2Cdex&aggregate=1&limit=${limit}`;
+  const j = await fetchJSON(url);
+  if(!j || !j.data) return [];
+  // index included tokens
+  const incMap = new Map();
+  for(const inc of (j.included||[])){
+    if(inc.type==='token' && typeof inc.id==='string'){
+      incMap.set(inc.id, {
+        address: inc.id.split('_')[1]?.toLowerCase(),
+        symbol: inc.attributes?.symbol || '',
+        name: inc.attributes?.name || ''
+      });
+    }
   }
-
-  const profiles = (data.profiles || []).filter(p => (p.chainId||'').toLowerCase()==='ethereum');
-  const start = params.startTs, end = params.endTs;
-  const byToken = new Map();
-  for (const p of profiles){
-    const t = p.pairCreatedAt ? Number(p.pairCreatedAt) : null;
-    if (start && t && t < start) continue;
-    if (end && t && t > end) continue;
-    const addr = (p.baseToken?.address || '').toLowerCase();
-    if (!addr || !p.pairAddress) continue;
-    const cur = byToken.get(addr);
-    if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) byToken.set(addr, p);
+  const out = [];
+  for(const d of j.data){
+    const a = d.attributes||{}; const r = d.relationships||{};
+    const baseId = r.base_token?.data?.id;
+    const quoteId= r.quote_token?.data?.id;
+    const base = incMap.get(baseId)||{};
+    const quote= incMap.get(quoteId)||{};
+    out.push({
+      tokenName: base.name || a.name || '',
+      tokenSymbol: base.symbol || '',
+      tokenAddress: base.address || '',
+      poolAddress: (a.address||'').toLowerCase(),
+      dex: r.dex?.data?.id || '',
+      h24: (a.price_change_percentage||{}).h24 ?? null,
+      reserve_usd: a.reserve_in_usd ?? null,
+      quoteSymbol: quote.symbol || 'WETH',
+      source: 'gt_trending'
+    });
   }
-
-  const out = Array.from(byToken.values()).map(p => ({
-    name: p.baseToken?.name || '',
-    symbol: p.baseToken?.symbol || '',
-    address: (p.baseToken?.address || '').toLowerCase(),
-    poolAddress: (p.pairAddress || '').toLowerCase(),
-    dex: p.dexId || '',
-    quoteTokenSymbol: p.quoteToken?.symbol || 'WETH',
-    pairCreatedAt: p.pairCreatedAt || null,
-    dataMode: 'real'
-  }));
   return out;
 }
 
-async function detectPriceSpike(token, params){
-  // GeckoTerminal OHLCV day for pool
-  const ohlcvUrl = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${token.poolAddress}/ohlcv/day?aggregate=1&limit=90`;
-  let j;
-  try{ j = await fetchJsonWithFallback(ohlcvUrl); }
-  catch(e){ log(`GeckoTerminal API error for ${token.symbol||token.name} : ${e.message}`,'warn'); return null; }
-
-  const rows = (j?.data?.attributes?.ohlcv_list || []).map(([ts,o,h,l,c,v]) => ({ts:Number(ts), c:Number(c)}));
-  if(!rows.length) return null;
-
-  const start = params.startTs, end = params.endTs;
-  const series = rows.filter(r => (!start || r.ts >= start) && (!end || r.ts <= end));
-  if(series.length < params.pumpDays) return null;
-
-  let best = null;
-  for (let i=params.pumpDays-1;i<series.length;i++){
-    const win = series.slice(i-(params.pumpDays-1), i+1);
-    const minRow = win.reduce((a,b)=> a.c<b.c?a:b);
-    const mult = series[i].c / (minRow.c || 1e-9);
-    if (!best || mult > best.multiple) best = { peak: series[i], minRow, multiple: mult };
-  }
-  if (!best || best.multiple < params.multiplier) return null;
-
-  return {
-    peak_ts: new Date(best.peak.ts*1000).toISOString(),
-    peak_close: Number(best.peak.c.toFixed(8)),
-    preN_min_ts: new Date(best.minRow.ts*1000).toISOString(),
-    preN_min_close: Number(best.minRow.c.toFixed(8)),
-    multiple_close: Number(best.multiple.toFixed(2))
-  };
-}
-
-async function detectLPLock(token, params){
-  // Exclude v3 pools (estimate not supported here)
-  if ((token.dex||'').toLowerCase().includes('v3')) return null;
-
-  const url = `https://api.ethplorer.io/getTopTokenHolders/${token.poolAddress}?apiKey=freekey&limit=100`;
-  let j;
-  try{ j = await fetchJsonWithFallback(url); }
-  catch(e){ log(`Ethplorer API error for ${token.symbol||token.name} : ${e.message}`,'warn'); return null; }
-
-  let pct = 0;
-  const lockers = new Set();
-  for (const h of (j.holders || [])){
-    const addr = (h.address || '').toLowerCase();
-    const raw = (typeof h.share === 'number') ? h.share : 0; // could be 0-1 or 0-100
-    const sharePct = raw > 1 ? raw : raw*100;
-    if (KNOWN_BURN.has(addr)) pct += sharePct;
-    if (KNOWN_LOCKERS.has(addr)) { pct += sharePct; lockers.add(KNOWN_LOCKERS.get(addr)); }
-  }
-
-  if (pct < (params.lpThreshold||80)) return null;
-  return {
-    lp_type: lockers.size ? 'lp_lock' : 'burn_lock',
-    lp_pct_est: Number(pct.toFixed(1)),
-    locker_name: Array.from(lockers).join(','),
-    locker_proof_url: lockers.size ? 'https://app.unicrypt.network/' : '',
-    burn_proof_url: lockers.size ? '' : `https://etherscan.io/token/${token.poolAddress}#balances`
-  };
-}
-
-async function getGoogleTrends(token){
-  // Only provide search terms placeholder; actual daily series will be filled later by pytrends
-  return {
-    social_source: 'GoogleTrends',
-    search_terms: `${token.name} coin|${token.symbol} coin|${token.name} crypto|${token.symbol} crypto`,
-    gt_daily_series: '',
-    gt_2w_avg: '',
-    gt_2w_max: '',
-    gt_2w_zscore: ''
-  };
-}
-
-// ====== MAIN ======
-let analysisResults = [];
-
-function gatherParams(){
-  const startTs = getEpoch($('#startDate').value);
-  const endTs = getEpoch($('#endDate').value);
-  return {
-    startTs, endTs,
-    pumpDays: Math.max(2, parseInt($('#pumpDays').value || '14',10)),
-    multiplier: Math.max(1.1, parseFloat($('#multiplier').value || '3')),
-    lpThreshold: Math.max(0, Math.min(100, parseFloat($('#lpThreshold').value || '80'))),
-    maxTokens: Math.max(10, parseInt($('#maxTokens').value || '100',10))
-  };
-}
-
-function displayResults(rows){
-  const tbody = $('#resultTable tbody');
-  tbody.innerHTML = '';
-  rows.forEach((r, idx)=>{
-    const tr = document.createElement('tr');
-    const link = (u,t)=> `<a class="link" href="${u}" target="_blank" rel="noopener">${t}</a>`;
-    const urls = [
-      `https://dexscreener.com/ethereum/${r.poolAddress}`,
-      `https://api.geckoterminal.com/api/v2/networks/eth/pools/${r.poolAddress}/ohlcv/day?aggregate=1&limit=90`,
-      `https://api.ethplorer.io/getTopTokenHolders/${r.poolAddress}?apiKey=freekey&limit=100`
-    ];
-    tr.innerHTML = `
-      <td>${idx+1}</td>
-      <td>${r.name} <span class="pill">${r.symbol}</span></td>
-      <td><a class="link" href="https://etherscan.io/token/${r.address}" target="_blank">${r.address.slice(0,6)}...${r.address.slice(-4)}</a></td>
-      <td>${r.pump?.multiple_close ? (r.pump.multiple_close+'x') : '-'}
-          <div style="color:#8aa1b1;font-size:11px">${r.pump?.preN_min_close ?? ''} → ${r.pump?.peak_close ?? ''}</div>
-      </td>
-      <td>${r.lp?.lp_pct_est ? (r.lp.lp_pct_est+'% '+(r.lp.locker_name||r.lp.lp_type)) : '-'}
-          <div style="font-size:11px">${r.lp?.locker_proof_url ? link(r.lp.locker_proof_url,'locker') : ''} ${r.lp?.burn_proof_url ? link(r.lp.burn_proof_url,'burn') : ''}</div>
-      </td>
-      <td>${r.quoteTokenSymbol||'WETH'}</td>
-      <td style="font-size:11px">${link(urls[0],'DexScreener')} / ${link(urls[1],'OHLCV')} / ${link(urls[2],'Holders')}</td>
-      <td>${r.data_mode||'real'}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-  $('#csvBtn').disabled = rows.length===0;
-}
-
-function toCSV(rows){
-  const header = [
-    'name','symbol','address','poolAddress','dex','quoteTokenSymbol',
-    'pairCreatedAt',
-    'peak_ts','peak_close','preN_min_ts','preN_min_close','multiple_close',
-    'lp_type','lp_pct_est','locker_name','locker_proof_url','burn_proof_url',
-    'social_source','search_terms','gt_daily_series','gt_2w_avg','gt_2w_max','gt_2w_zscore',
-    'data_mode','data_urls'
-  ];
-  const lines = [header.join(',')];
-  for (const r of rows){
-    const vals = [
-      r.name, r.symbol, r.address, r.poolAddress, r.dex, r.quoteTokenSymbol,
-      r.pairCreatedAt || '',
-      r.pump?.peak_ts || '', r.pump?.peak_close ?? '', r.pump?.preN_min_ts || '', r.pump?.preN_min_close ?? '', r.pump?.multiple_close ?? '',
-      r.lp?.lp_type || '', r.lp?.lp_pct_est ?? '', r.lp?.locker_name || '', r.lp?.locker_proof_url || '', r.lp?.burn_proof_url || '',
-      r.trends?.social_source || '', r.trends?.search_terms || '', r.trends?.gt_daily_series || '', r.trends?.gt_2w_avg || '', r.trends?.gt_2w_max || '', r.trends?.gt_2w_zscore || '',
-      r.data_mode || 'real',
-      [`https://dexscreener.com/ethereum/${r.poolAddress}`,
-       `https://api.geckoterminal.com/api/v2/networks/eth/pools/${r.poolAddress}/ohlcv/day?aggregate=1&limit=90`,
-       `https://api.ethplorer.io/getTopTokenHolders/${r.poolAddress}?apiKey=freekey&limit=100`].join(';')
-    ].map(v => {
-      const s = String(v ?? '');
-      return '"' + s.replace(/"/g,'""') + '"';
-    });
-    lines.push(vals.join(','));
-  }
-  return lines.join('\n');
-}
-
-async function startAnalysis(){
-  $('#console').innerHTML='';
-  setStatus('running');
-  const params = gatherParams();
-  log(`Params: days=${params.pumpDays}, mult=${params.multiplier}, LP≥${params.lpThreshold}%, start=${params.startTs}, end=${params.endTs}`,'ok');
-
-  let tokens = [];
+// DexScreener: latest token profiles (optional seed; schemaは可変のためbest-effort)
+async function dsLatest(limit=200){
   try{
-    tokens = await getNewTokens(params);
-  }catch(e){
-    setStatus('error');
-    log('新規トークンの取得に失敗：'+e.message, 'err');
-    return;
-  }
-  log(`抽出（dedupe後）: ${tokens.length} tokens`, 'ok');
-
-  const results = [];
-  let idx=0;
-  for (const token of tokens){
-    idx++;
-    try{
-      const pump = await detectPriceSpike(token, params);
-      if (!pump) continue;
-      const lockData = await detectLPLock(token, params);
-      if (!lockData) continue; // ★ nullセーフ：閾値未満 / v3 はスキップ
-      const trends = await getGoogleTrends(token);  // ★ 呼び出し関数名を統一
-
-      results.push({
-        ...token,
-        pump, lp: lockData, trends,
-        data_mode: 'real'
+    const url = 'https://api.dexscreener.com/token-profiles/latest/v1';
+    const j = await fetchJSON(url);
+    if(!Array.isArray(j)) return [];
+    const out = [];
+    for(const p of j){
+      const addr = (p?.address || p?.tokenAddress || '').toLowerCase();
+      const chain = (p?.chain || p?.chainId || p?.chainIdHex || '').toString().toLowerCase();
+      if(!addr) continue;
+      if(p?.chains && Array.isArray(p.chains) && !p.chains.includes('ethereum')) continue;
+      if(chain && !chain.includes('eth')) continue; // heuristic
+      out.push({
+        tokenName: p.name || p.symbol || '',
+        tokenSymbol: p.symbol || '',
+        tokenAddress: addr,
+        poolAddress: '', // 後でGT検索で補完（本実装では未実施）
+        dex: '',
+        h24: null,
+        reserve_usd: null,
+        quoteSymbol: 'WETH',
+        source: 'ds_latest'
       });
-      log(`OK ${token.symbol||token.name}: ${pump.multiple_close}x, LP≈${lockData.lp_pct_est}%`,'ok');
-      // Optional small delay to be gentle with free APIs
-      await new Promise(r=>setTimeout(r, 400));
+      if(out.length>=limit) break;
+    }
+    return out;
+  }catch(e){ log("DexScreener latest error: " + e.message); return []; }
+}
+
+// GeckoTerminal: pool OHLCV（日足）
+async function gtOHLCV_day(poolAddress, days=60){
+  const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${days}`;
+  const j = await fetchJSON(url);
+  const arr = j?.data?.attributes?.ohlcv_list || [];
+  // each row: [ts, o, h, l, c, v]
+  return arr.map(([ts,o,h,l,c,v]) => ({ ts: normUnix(ts), c: Number(c) }))
+            .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.c));
+}
+
+// Ethplorer: top holders（LPロックの簡易推定）
+async function ethplorerTopHolders(tokenAddress){
+  const url = `https://api.ethplorer.io/getTopTokenHolders/${tokenAddress}?apiKey=freekey&limit=100`;
+  return await fetchJSON(url);
+}
+function estimateLpLockPct(topHoldersJson){
+  const H = topHoldersJson?.holders || [];
+  const tags = ['LOCK','LOCKER','UNICRYPT','PINK','TEAM','BURN','DEAD','0X0000000000000000000000000000000000000000','LP','PAIR','UNISWAP'];
+  let pct = 0;
+  for(const h of H){
+    const a = (h.address||'').toUpperCase();
+    if(tags.some(t => a.includes(t))) pct += Number(h.share||0);
+  }
+  return Math.min(100, pct);
+}
+
+// スパイク検出（「ある日tの終値 / 直前D日間の最安終値」 >= 倍率）
+function detectSpike(rows, D, mult, startTs, endTs){
+  if(!rows.length) return null;
+  // 期間で絞り込み
+  const f = rows.filter(r => (!startTs || r.ts>=startTs) && (!endTs || r.ts<=endTs));
+  if(f.length<2) return null;
+  // スライディング最小（直前D日分の最小終値）
+  const window = [];
+  let best = null;
+  for(let i=0;i<f.length;i++){
+    const cur = f[i];
+    // 直前D日範囲
+    const tMin = cur.ts - D*86400;
+    // window から範囲外を除去
+    while(window.length && window[0].ts < tMin) window.shift();
+    // 今時点の直前最安
+    const minPrev = window.length ? Math.min(...window.map(x=>x.c)) : null;
+    if(minPrev && minPrev>0){
+      const ratio = cur.c / minPrev;
+      if(ratio >= mult){
+        if(!best || ratio > best.ratio){
+          best = { ratio, at: cur.ts, from: window.reduce((a,b)=> a.c<b.c? a:b).ts };
+        }
+      }
+    }
+    // push current
+    window.push(cur);
+  }
+  return best; // {ratio, at, from}
+}
+
+// ---- Main flow ----
+async function run(){
+  $("#csvBtn").disabled = true;
+  $("#tbl").style.display = "none";
+  logEl.textContent = "";
+
+  const startTs = new Date($("#startDate").value+"T00:00:00Z").getTime()/1000|0;
+  const endTs   = new Date($("#endDate").value+"T23:59:59Z").getTime()/1000|0;
+  const D       = parseInt($("#pumpDays").value,10) || 14;
+  const mult    = parseFloat($("#pumpMult").value) || 3;
+  const lpMin   = Math.max(0, Math.min(100, parseFloat($("#lpThreshold").value)||80));
+  const maxRows = parseInt($("#maxRows").value,10) || 150;
+
+  log(`Params: days=${D}, mult=${mult}, LP≥${lpMin}%, start=${startTs}, end=${endTs}`);
+
+  // 1) シード: GeckoTerminal trending
+  const seedGT = await gtTrending(120);
+  log(`GeckoTerminal trending seeds: ${seedGT.length}`);
+
+  // 2) 追加シード: DexScreener latest（取得できたら結合）
+  const seedDS = await dsLatest(120);
+  log(`DexScreener latest seeds: ${seedDS.length}`);
+
+  // 結合 & 去重（tokenAddress基準）
+  const map = new Map();
+  for(const s of [...seedGT, ...seedDS]){
+    if(!s.tokenAddress) continue;
+    if(!map.has(s.tokenAddress)) map.set(s.tokenAddress, s);
+  }
+  const seeds = [...map.values()];
+  log(`Total unique seeds: ${seeds.length}`);
+
+  const out = [];
+  for(const s of seeds){
+    try{
+      // プールが無い場合はスキップ（DSからの種はプール不明のことがある）
+      if(!s.poolAddress){ /* TODO: 必要なら search/pools で補完 */ continue; }
+
+      // 3) OHLCV（日足）でスパイク判定
+      const rows = await gtOHLCV_day(s.poolAddress, Math.max(60, D+16));
+      const spike = detectSpike(rows, D, mult, startTs, endTs);
+      if(!spike) continue;
+
+      // 4) LPロック（簡易推定）
+      let lpPct = 0;
+      try { const th = await ethplorerTopHolders(s.tokenAddress); lpPct = estimateLpLockPct(th); }
+      catch(e){ log(`Ethplorer error ${s.tokenAddress}: ${e.message}`); }
+
+      if(lpPct < lpMin) continue;
+
+      out.push({
+        token: s.tokenName || s.tokenSymbol || "(unknown)",
+        address: s.tokenAddress,
+        pool: s.poolAddress,
+        dex: s.dex || "",
+        spike: "YES",
+        ratio: spike.ratio,
+        window: `${new Date(spike.from*1000).toISOString().slice(0,10)} → ${new Date(spike.at*1000).toISOString().slice(0,10)}`,
+        lp: lpPct,
+        h24: s.h24,
+        liq: s.reserve_usd,
+        links: [
+          `https://www.geckoterminal.com/eth/pools/${s.pool}`,
+          `https://etherscan.io/token/${s.address}`,
+          `https://dexscreener.com/ethereum/${s.pool}`
+        ]
+      });
+      if(out.length >= maxRows) break;
     }catch(e){
-      log(`Error analyzing ${token.symbol||token.name}: ${e.message}`, 'warn');
-      continue;
+      log(`analyze error ${s.tokenAddress}: ${e.message}`);
     }
   }
 
-  analysisResults = results;
-  const toShow = results.slice(0, params.maxTokens);
-  displayResults(toShow);
-  setStatus('done');
-  log(`完成: ${results.length} hits (showing ${toShow.length})`, 'ok');
+  // 表示
+  out.sort((a,b)=> (b.ratio||0)-(a.ratio||0));
+  const tb = $("#tbl tbody"); tb.innerHTML = "";
+  out.forEach((r,i)=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${r.token}</td>
+      <td class="muted"><code>${r.address}</code></td>
+      <td class="muted"><code>${r.pool}</code></td>
+      <td>${r.dex||""}</td>
+      <td>${r.spike}</td>
+      <td>${(r.ratio||0).toFixed(2)}x</td>
+      <td>${r.window}</td>
+      <td>${(r.lp||0).toFixed(1)}</td>
+      <td>${r.h24??""}</td>
+      <td>${r.liq!=null ? Math.round(r.liq).toLocaleString() : ""}</td>
+      <td>${r.links.map(u=>`<a href="${u}" target="_blank" rel="noopener">link</a>`).join(" / ")}</td>
+    `;
+    tb.appendChild(tr);
+  });
+  $("#tbl").style.display = out.length ? "" : "none";
+  $("#csvBtn").disabled = out.length===0;
+  log(`完了: ${out.length} hits (showing ${Math.min(out.length, maxRows)})`);
 }
 
-$('#runBtn').addEventListener('click', startAnalysis);
-
-$('#csvBtn').addEventListener('click', ()=>{
-  if (!analysisResults.length) return;
-  const csv = toCSV(analysisResults);
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const a = document.createElement('a');
+// CSV
+$("#csvBtn").addEventListener("click", () => {
+  const rows = [...document.querySelectorAll("#tbl tbody tr")].map(tr => 
+    [...tr.children].map(td => `"${String(td.innerText).replaceAll('"','""')}"`).join(","));
+  const header = [...document.querySelectorAll("#tbl thead th")].map(th => `"${th.innerText}"`).join(",");
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
   const url = URL.createObjectURL(blob);
-  a.href = url;
-  a.download = 'meme-coin-analyzer-results.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const a = document.createElement("a");
+  a.href = url; a.download = "meme-coin-eth-latest.csv"; a.click();
   URL.revokeObjectURL(url);
 });
+
+$("#runBtn").addEventListener("click", run);
 </script>
 </body>
 </html>
