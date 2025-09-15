@@ -1,378 +1,308 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>新規ミームコイン データ収集・分析支援（Ethereum）- latest</title>
-  <style>
-    :root { color-scheme: dark light; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; line-height: 1.45; }
-    h1 { font-size: 20px; margin: 0 0 12px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1100px; }
-    label { display: block; font-size: 12px; color: #8aa1b1; margin-bottom: 6px; }
-    input[type="text"], input[type="date"], input[type="number"] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444; background: transparent; color: inherit; }
-    .row { grid-column: span 2; }
-    .actions { display: flex; gap: 12px; margin: 16px 0; }
-    button { padding: 10px 16px; border-radius: 8px; border: 1px solid #555; background: #2d6cdf; color: #fff; cursor: pointer; }
-    button.secondary { background: transparent; color: inherit; }
-    #log { white-space: pre-wrap; background: #111; border: 1px solid #333; border-radius: 8px; padding: 10px; min-height: 140px; overflow: auto; max-width: 1100px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border-bottom: 1px solid #333; padding: 8px; font-size: 13px; vertical-align: top; }
-    th { position: sticky; top: 0; background: #0b0b0b; }
-    .muted { color: #8aa1b1; font-size: 12px; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>新規ミームコイン データ収集・分析支援 (Ethereum)</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#0b0f14; color:#e6f0ff;}
+  .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  h1{font-size:20px; margin:0 0 16px;}
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px;}
+  .card { background:#121924; border:1px solid #203042; border-radius:10px; padding:14px;}
+  label{display:block; font-size:12px; color:#96adcb; margin-bottom:6px;}
+  input,button { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #2a3a4f; background:#0e1520; color:#e6f0ff;}
+  input[type="range"]{padding:0;}
+  small{color:#8aa1b9;}
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px;}
+  .actions { display:flex; gap:10px; }
+  .btn-primary { background:#0a6cff; border-color:#2c6fe6; cursor:pointer; }
+  .btn-secondary { background:#0e1520; border-color:#2a3a4f; }
+  .log { white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0e1520; border:1px solid #2a3a4f; border-radius:10px; padding:12px; min-height:220px; overflow:auto;}
+  table{width:100%; border-collapse: collapse; margin-top:14px; font-size:13px;}
+  th,td{border-bottom:1px solid #203042; padding:8px 6px; text-align:left;}
+  th{color:#9fb7d6;}
+  .muted{color:#8aa1b9}
+</style>
 </head>
 <body>
+<div class="wrap">
   <h1>新規ミームコイン データ収集・分析支援 <span class="muted">(Ethereum / latest)</span></h1>
 
-  <section class="grid">
-    <div>
-      <label>観測期間の開始日</label>
-      <input type="date" id="startDate" />
-    </div>
-    <div>
-      <label>観測期間の終了日</label>
-      <input type="date" id="endDate" />
-    </div>
-    <div>
-      <label>急騰判定 期間（日）</label>
-      <input type="number" id="pumpDays" value="14" min="1" step="1" />
-    </div>
-    <div>
-      <label>急騰判定 倍率（x）</label>
-      <input type="number" id="pumpMult" value="3" min="1" step="0.1" />
-    </div>
-    <div>
-      <label>LPロック閾値（%）</label>
-      <input type="number" id="lpThreshold" value="80" min="0" max="100" step="1" />
-    </div>
-    <div>
-      <label>最大表示件数（UIのみ）</label>
-      <input type="number" id="maxRows" value="150" min="10" step="10" />
-    </div>
-    <div class="row">
-      <label>(任意) Cloudflare Workers プロキシURL</label>
-      <input type="text" id="workerUrl" placeholder="https://YOUR-NAME.workers.dev/?url=" />
-      <small class="muted">モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
-    </div>
-  </section>
+  <div class="grid">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>観測期間の開始日</label>
+          <input type="date" id="startDate" />
+        </div>
+        <div>
+          <label>観測期間の終了日</label>
+          <input type="date" id="endDate" />
+        </div>
+      </div>
 
-  <section class="actions">
-    <button id="runBtn">分析開始</button>
-    <button id="csvBtn" class="secondary" disabled>CSVをダウンロード</button>
-  </section>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>急騰判定 期間（日）</label>
+          <input type="number" id="days" min="7" max="60" value="14" />
+        </div>
+        <div>
+          <label>急騰判定 倍率（×）</label>
+          <input type="number" id="mult" step="0.1" min="1" value="3" />
+        </div>
+      </div>
 
-  <div id="log" aria-live="polite"></div>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>LPロック 閾値（%）</label>
+          <input type="number" id="lpMin" min="0" max="100" value="80" />
+        </div>
+        <div>
+          <label>最大表示件数（UIのみ）</label>
+          <input type="number" id="maxTokens" min="5" max="200" value="150" />
+        </div>
+      </div>
 
-  <table id="tbl" style="display:none">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Token</th>
-        <th>Address</th>
-        <th>Pool</th>
-        <th>Dex</th>
-        <th>Spike</th>
-        <th>×倍率</th>
-        <th>基準期間</th>
-        <th>LP(推定)%</th>
-        <th>h24%</th>
-        <th>流動性USD</th>
-        <th>Links</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+      <div style="margin-top:10px;">
+        <label>（任意）Cloudflare Workers プロキシURL</label>
+        <input id="workerUrl" type="text" placeholder="https://cors-proxy.あなたのID.workers.dev/?url=" />
+        <small>モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
+      </div>
+
+      <div class="actions" style="margin-top:12px;">
+        <button class="btn-primary" id="runBtn">分析開始</button>
+        <button class="btn-secondary" id="csvBtn" disabled>CSVをダウンロード</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Console Messages</label>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>#</th><th>Token / Pool</th><th>Address</th><th>h1%</th><th>h6%</th><th>h24%</th><th>作成日時</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="muted" style="margin-top:8px;">© 2025 — Ethereum only（他チェーンは拡張容易な設計）/ データ: GeckoTerminal（無料エンドポイント）</div>
+  </div>
+</div>
 
 <script>
-const $ = (s)=>document.querySelector(s);
-const logEl = $("#log");
-function log(msg){ const t = typeof msg==="string" ? msg : JSON.stringify(msg); logEl.textContent += (t + "\n"); logEl.scrollTop = logEl.scrollHeight; }
+(function(){
+  const $ = (id)=>document.getElementById(id);
+  const logEl = $('log');
+  const tblBody = document.querySelector('#tbl tbody');
 
-// ---- Dates init (default: last 14d) ----
-(function setDates(){
-  const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const start = new Date(end.getTime() - 14*86400*1000);
-  $("#startDate").value = start.toISOString().slice(0,10);
-  $("#endDate").value   = end.toISOString().slice(0,10);
-})();
+  // ---------- utils ----------
+  const sleep = ms => new Promise(r=>setTimeout(r, ms));
+  const now = ()=> new Date();
 
-// ---- Persist worker URL ----
-const workerInput = $("#workerUrl");
-workerInput.value = localStorage.getItem("workerUrl") || workerInput.value;
-workerInput.addEventListener("change", ()=>localStorage.setItem("workerUrl", workerInput.value.trim()));
+  function log(msg, color){
+    const line = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    logEl.innerHTML += (color ? `%c${line}` : line) + "\n";
+    if(color){
+      // keep the color but also print plain text for copy
+      console.log(line);
+    } else {
+      console.log(line);
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+  }
 
-// ---- Utils ----
-function normUnix(x){
-  const n = Number(x);
-  if(!Number.isFinite(n)) return null;
-  return n > 1e12 ? Math.floor(n/1000) : Math.floor(n); // ms→s を吸収
-}
-function normalizeWorker(base){
-  if(!base) return "";
-  let u = base.trim();
-  if(!u.includes("?")) { if(!u.endsWith("/")) u+="/"; u += "?url="; }
-  else if(!u.includes("url=")) { if(!u.endsWith("&") && !u.endsWith("?")) u+="&"; u+="url="; }
-  return u;
-}
-async function fetchJSON(rawUrl){
-  const worker = normalizeWorker(($("#workerUrl").value||"").trim());
-  const tries = [];
-  if(worker) tries.push(worker + encodeURIComponent(rawUrl)); // Worker first
-  tries.push(rawUrl); // direct (GitHub PagesはOKのことが多い)
-  for(const u of tries){
+  function saveWorkerUrl(v){ try{ localStorage.setItem('workerUrl', v||''); }catch{} }
+  function loadWorkerUrl(){ try{ return localStorage.getItem('workerUrl')||''; }catch{ return '';} }
+
+  // ---------- rate limiter (sequential + jitter) ----------
+  const BASE_DELAY = 500;      // 429 対策: 1 リクエストあたり 0.5s
+  const JITTER_MIN = 120, JITTER_MAX = 280;
+
+  async function rateGuard(){
+    const jitter = Math.floor(JITTER_MIN + Math.random()*(JITTER_MAX-JITTER_MIN));
+    await sleep(BASE_DELAY + jitter);
+  }
+
+  // ---------- proxied fetch with 429-aware retry ----------
+  async function fetchJsonWithRetry(rawUrl, opts={}){
+    const workerBase = $('workerUrl').value.trim();
+    const target = rawUrl;
+    const build = (u)=> workerBase ? (workerBase + encodeURIComponent(u)) : u;
+
+    let attempt = 0;
+    const MAX_ATTEMPTS = 6;
+
+    while(true){
+      await rateGuard(); // まずは間引き
+
+      let res;
+      try{
+        res = await fetch(build(target), { headers: { 'accept': 'application/json' }});
+      }catch(e){
+        // ネットワーク系は少し待ってリトライ
+        attempt++;
+        if(attempt>=MAX_ATTEMPTS) throw e;
+        const backoff = Math.min(4000, 300 * 2**attempt);
+        log(`network error -> retry in ${backoff}ms`);
+        await sleep(backoff);
+        continue;
+      }
+
+      if(res.status === 429){
+        attempt++;
+        const ra = parseInt(res.headers.get('retry-after')||'0',10);
+        const waitMs = ra ? (ra*1000) : Math.min(5000, 400 * 2**attempt);
+        log(`429 Too Many Requests -> retry in ${waitMs}ms`);
+        if(attempt>=MAX_ATTEMPTS) throw new Error('429 repeatedly');
+        await sleep(waitMs);
+        continue;
+      }
+
+      if(!res.ok){
+        // 4xx/5xx 他はそのまま例外
+        const txt = await res.text().catch(()=>String(res.status));
+        throw new Error(`HTTP ${res.status} ${txt.slice(0,200)}`);
+      }
+
+      return res.json();
+    }
+  }
+
+  // ---------- API helpers ----------
+  const GT_BASE = 'https://api.geckoterminal.com';
+
+  async function getTrendingSeeds(limit=30){
+    // Ethereum / trending pools
+    const url = `${GT_BASE}/api/v2/networks/ethereum/trending_pools?aggregate=1&limit=${encodeURIComponent(limit)}`;
+    const j = await fetchJsonWithRetry(url);
+    const arr = (j && j.data) ? j.data : [];
+    // 返って来るのは {id:"eth_0x...", type:"pool", attributes:{...}}
+    return arr.map(x=>x.id);
+  }
+
+  async function getPoolDetail(poolId){
+    // 単一プールの詳細
+    const url = `${GT_BASE}/api/v2/pools/${encodeURIComponent(poolId)}`;
+    const j = await fetchJsonWithRetry(url);
+    // attributes の中に price_change_percentage や pool_created_at など
+    const d = j && j.data;
+    if(!d) return null;
+    const a = d.attributes || {};
+    return {
+      id: d.id,
+      name: a.name || '',
+      created_at: a.pool_created_at || '',
+      h1: n(a.price_change_percentage && a.price_change_percentage.h1),
+      h6: n(a.price_change_percentage && a.price_change_percentage.h6),
+      h24: n(a.price_change_percentage && a.price_change_percentage.h24),
+      address: a.address || (d.id.split('_')[1] || '')
+    };
+  }
+
+  const n = (v)=> (v===null || v===undefined) ? null : Number(v);
+
+  // ---------- CSV ----------
+  function toCSV(rows){
+    const header = ['#','Token / Pool','Address','h1%','h6%','h24%','CreatedAt'];
+    const body = rows.map((r,i)=>[
+      i+1, wrapCsv(r.name), wrapCsv(r.address), r.h1, r.h6, r.h24, wrapCsv(r.created_at)
+    ].join(','));
+    return [header.join(','), ...body].join('\n');
+  }
+  function wrapCsv(s){ s = (s||'').toString(); if(/[,"\n]/.test(s)){ return `"${s.replace(/"/g,'""')}"`; } return s; }
+
+  // ---------- main ----------
+  $('workerUrl').value = loadWorkerUrl();
+  $('workerUrl').addEventListener('change', e=> saveWorkerUrl(e.target.value));
+
+  // 初期日付
+  const today = new Date();
+  const endISO = new Date(today.getTime()-24*3600*1000).toISOString().slice(0,10);
+  const startISO = new Date(today.getTime()-14*24*3600*1000).toISOString().slice(0,10);
+  $('startDate').value = startISO;
+  $('endDate').value = endISO;
+
+  let latestRows = [];
+
+  $('runBtn').addEventListener('click', async ()=>{
+    logEl.textContent = '';
+    tblBody.innerHTML = '';
+    latestRows = [];
+    const days = Number($('days').value||14);
+    const mult = Number($('mult').value||3);
+    const lpMin = Number($('lpMin').value||80);
+    const maxTokens = Math.max(5, Math.min(200, Number($('maxTokens').value||100)));
+
+    const start = Math.floor(new Date($('startDate').value).getTime()/1000);
+    const end   = Math.floor(new Date($('endDate').value).getTime()/1000);
+    log(`Params: days=${days}, mult=${mult}, LP≥${lpMin}%, start=${start}, end=${end}`);
+
+    // まずは seed 収集
+    let seeds = [];
     try{
-      const res = await fetch(u, {method:"GET", mode:"cors"});
-      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const ct = res.headers.get("content-type")||"";
-      if(!ct.includes("application/json")) { const tx = await res.text(); try { return JSON.parse(tx); } catch { throw new Error("Non-JSON"); } }
-      return await res.json();
-    }catch(e){ log(`fetch failed: ${u} ${e.message}`); }
-  }
-  throw new Error("All fetch attempts failed: " + rawUrl);
-}
-
-// ---- Data sources (GeckoTerminal / DexScreener / Ethplorer) ----
-// GeckoTerminal: trending pools by network (eth)
-async function gtTrending(limit=100){
-  const url = `https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?include=base_token%2Cquote_token%2Cdex&aggregate=1&limit=${limit}`;
-  const j = await fetchJSON(url);
-  if(!j || !j.data) return [];
-  // index included tokens
-  const incMap = new Map();
-  for(const inc of (j.included||[])){
-    if(inc.type==='token' && typeof inc.id==='string'){
-      incMap.set(inc.id, {
-        address: inc.id.split('_')[1]?.toLowerCase(),
-        symbol: inc.attributes?.symbol || '',
-        name: inc.attributes?.name || ''
-      });
+      seeds = await getTrendingSeeds(30); // まず 30 まで
+      log(`GeckoTerminal trending seeds: ${seeds.length}`);
+    }catch(e){
+      log(`trending fetch failed: ${e.message}`);
     }
-  }
-  const out = [];
-  for(const d of j.data){
-    const a = d.attributes||{}; const r = d.relationships||{};
-    const baseId = r.base_token?.data?.id;
-    const quoteId= r.quote_token?.data?.id;
-    const base = incMap.get(baseId)||{};
-    const quote= incMap.get(quoteId)||{};
-    out.push({
-      tokenName: base.name || a.name || '',
-      tokenSymbol: base.symbol || '',
-      tokenAddress: base.address || '',
-      poolAddress: (a.address||'').toLowerCase(),
-      dex: r.dex?.data?.id || '',
-      h24: (a.price_change_percentage||{}).h24 ?? null,
-      reserve_usd: a.reserve_in_usd ?? null,
-      quoteSymbol: quote.symbol || 'WETH',
-      source: 'gt_trending'
-    });
-  }
-  return out;
-}
 
-// DexScreener: latest token profiles (optional seed; schemaは可変のためbest-effort)
-async function dsLatest(limit=200){
-  try{
-    const url = 'https://api.dexscreener.com/token-profiles/latest/v1';
-    const j = await fetchJSON(url);
-    if(!Array.isArray(j)) return [];
-    const out = [];
-    for(const p of j){
-      const addr = (p?.address || p?.tokenAddress || '').toLowerCase();
-      const chain = (p?.chain || p?.chainId || p?.chainIdHex || '').toString().toLowerCase();
-      if(!addr) continue;
-      if(p?.chains && Array.isArray(p.chains) && !p.chains.includes('ethereum')) continue;
-      if(chain && !chain.includes('eth')) continue; // heuristic
-      out.push({
-        tokenName: p.name || p.symbol || '',
-        tokenSymbol: p.symbol || '',
-        tokenAddress: addr,
-        poolAddress: '', // 後でGT検索で補完（本実装では未実施）
-        dex: '',
-        h24: null,
-        reserve_usd: null,
-        quoteSymbol: 'WETH',
-        source: 'ds_latest'
-      });
-      if(out.length>=limit) break;
-    }
-    return out;
-  }catch(e){ log("DexScreener latest error: " + e.message); return []; }
-}
+    log(`Total unique seeds: ${seeds.length}`);
 
-// GeckoTerminal: pool OHLCV（日足）
-async function gtOHLCV_day(poolAddress, days=60){
-  const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${days}`;
-  const j = await fetchJSON(url);
-  const arr = j?.data?.attributes?.ohlcv_list || [];
-  // each row: [ts, o, h, l, c, v]
-  return arr.map(([ts,o,h,l,c,v]) => ({ ts: normUnix(ts), c: Number(c) }))
-            .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.c));
-}
+    // 各 seed を順次処理（※並列禁止 / レートガードあり）
+    let shown = 0, idx=0;
+    for(const poolId of seeds){
+      idx++;
+      try{
+        const d = await getPoolDetail(poolId);
+        if(!d) continue;
 
-// Ethplorer: top holders（LPロックの簡易推定）
-async function ethplorerTopHolders(tokenAddress){
-  const url = `https://api.ethplorer.io/getTopTokenHolders/${tokenAddress}?apiKey=freekey&limit=100`;
-  return await fetchJSON(url);
-}
-function estimateLpLockPct(topHoldersJson){
-  const H = topHoldersJson?.holders || [];
-  const tags = ['LOCK','LOCKER','UNICRYPT','PINK','TEAM','BURN','DEAD','0X0000000000000000000000000000000000000000','LP','PAIR','UNISWAP'];
-  let pct = 0;
-  for(const h of H){
-    const a = (h.address||'').toUpperCase();
-    if(tags.some(t => a.includes(t))) pct += Number(h.share||0);
-  }
-  return Math.min(100, pct);
-}
-
-// スパイク検出（「ある日tの終値 / 直前D日間の最安終値」 >= 倍率）
-function detectSpike(rows, D, mult, startTs, endTs){
-  if(!rows.length) return null;
-  // 期間で絞り込み
-  const f = rows.filter(r => (!startTs || r.ts>=startTs) && (!endTs || r.ts<=endTs));
-  if(f.length<2) return null;
-  // スライディング最小（直前D日分の最小終値）
-  const window = [];
-  let best = null;
-  for(let i=0;i<f.length;i++){
-    const cur = f[i];
-    // 直前D日範囲
-    const tMin = cur.ts - D*86400;
-    // window から範囲外を除去
-    while(window.length && window[0].ts < tMin) window.shift();
-    // 今時点の直前最安
-    const minPrev = window.length ? Math.min(...window.map(x=>x.c)) : null;
-    if(minPrev && minPrev>0){
-      const ratio = cur.c / minPrev;
-      if(ratio >= mult){
-        if(!best || ratio > best.ratio){
-          best = { ratio, at: cur.ts, from: window.reduce((a,b)=> a.c<b.c? a:b).ts };
+        // ここに必要であれば LP ロックや急騰判定のフィルタを追加
+        // 今回は h24 が存在するものを表示
+        latestRows.push(d);
+        if(shown < maxTokens){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${shown+1}</td>
+            <td>${escapeHtml(d.name||'')}</td>
+            <td>${short(d.address)}</td>
+            <td>${fmtp(d.h1)}</td>
+            <td>${fmtp(d.h6)}</td>
+            <td>${fmtp(d.h24)}</td>
+            <td>${escapeHtml(d.created_at||'')}</td>`;
+          tblBody.appendChild(tr);
+          shown++;
         }
+      }catch(e){
+        log(`fetch failed: ${e.message}`);
       }
     }
-    // push current
-    window.push(cur);
-  }
-  return best; // {ratio, at, from}
-}
 
-// ---- Main flow ----
-async function run(){
-  $("#csvBtn").disabled = true;
-  $("#tbl").style.display = "none";
-  logEl.textContent = "";
-
-  const startTs = new Date($("#startDate").value+"T00:00:00Z").getTime()/1000|0;
-  const endTs   = new Date($("#endDate").value+"T23:59:59Z").getTime()/1000|0;
-  const D       = parseInt($("#pumpDays").value,10) || 14;
-  const mult    = parseFloat($("#pumpMult").value) || 3;
-  const lpMin   = Math.max(0, Math.min(100, parseFloat($("#lpThreshold").value)||80));
-  const maxRows = parseInt($("#maxRows").value,10) || 150;
-
-  log(`Params: days=${D}, mult=${mult}, LP≥${lpMin}%, start=${startTs}, end=${endTs}`);
-
-  // 1) シード: GeckoTerminal trending
-  const seedGT = await gtTrending(120);
-  log(`GeckoTerminal trending seeds: ${seedGT.length}`);
-
-  // 2) 追加シード: DexScreener latest（取得できたら結合）
-  const seedDS = await dsLatest(120);
-  log(`DexScreener latest seeds: ${seedDS.length}`);
-
-  // 結合 & 去重（tokenAddress基準）
-  const map = new Map();
-  for(const s of [...seedGT, ...seedDS]){
-    if(!s.tokenAddress) continue;
-    if(!map.has(s.tokenAddress)) map.set(s.tokenAddress, s);
-  }
-  const seeds = [...map.values()];
-  log(`Total unique seeds: ${seeds.length}`);
-
-  const out = [];
-  for(const s of seeds){
-    try{
-      // プールが無い場合はスキップ（DSからの種はプール不明のことがある）
-      if(!s.poolAddress){ /* TODO: 必要なら search/pools で補完 */ continue; }
-
-      // 3) OHLCV（日足）でスパイク判定
-      const rows = await gtOHLCV_day(s.poolAddress, Math.max(60, D+16));
-      const spike = detectSpike(rows, D, mult, startTs, endTs);
-      if(!spike) continue;
-
-      // 4) LPロック（簡易推定）
-      let lpPct = 0;
-      try { const th = await ethplorerTopHolders(s.tokenAddress); lpPct = estimateLpLockPct(th); }
-      catch(e){ log(`Ethplorer error ${s.tokenAddress}: ${e.message}`); }
-
-      if(lpPct < lpMin) continue;
-
-      out.push({
-        token: s.tokenName || s.tokenSymbol || "(unknown)",
-        address: s.tokenAddress,
-        pool: s.poolAddress,
-        dex: s.dex || "",
-        spike: "YES",
-        ratio: spike.ratio,
-        window: `${new Date(spike.from*1000).toISOString().slice(0,10)} → ${new Date(spike.at*1000).toISOString().slice(0,10)}`,
-        lp: lpPct,
-        h24: s.h24,
-        liq: s.reserve_usd,
-        links: [
-          `https://www.geckoterminal.com/eth/pools/${s.pool}`,
-          `https://etherscan.io/token/${s.address}`,
-          `https://dexscreener.com/ethereum/${s.pool}`
-        ]
-      });
-      if(out.length >= maxRows) break;
-    }catch(e){
-      log(`analyze error ${s.tokenAddress}: ${e.message}`);
-    }
-  }
-
-  // 表示
-  out.sort((a,b)=> (b.ratio||0)-(a.ratio||0));
-  const tb = $("#tbl tbody"); tb.innerHTML = "";
-  out.forEach((r,i)=>{
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${i+1}</td>
-      <td>${r.token}</td>
-      <td class="muted"><code>${r.address}</code></td>
-      <td class="muted"><code>${r.pool}</code></td>
-      <td>${r.dex||""}</td>
-      <td>${r.spike}</td>
-      <td>${(r.ratio||0).toFixed(2)}x</td>
-      <td>${r.window}</td>
-      <td>${(r.lp||0).toFixed(1)}</td>
-      <td>${r.h24??""}</td>
-      <td>${r.liq!=null ? Math.round(r.liq).toLocaleString() : ""}</td>
-      <td>${r.links.map(u=>`<a href="${u}" target="_blank" rel="noopener">link</a>`).join(" / ")}</td>
-    `;
-    tb.appendChild(tr);
+    log(`完了: ${shown} hits (showing ${shown})`);
+    $('csvBtn').disabled = latestRows.length===0;
   });
-  $("#tbl").style.display = out.length ? "" : "none";
-  $("#csvBtn").disabled = out.length===0;
-  log(`完了: ${out.length} hits (showing ${Math.min(out.length, maxRows)})`);
-}
 
-// CSV
-$("#csvBtn").addEventListener("click", () => {
-  const rows = [...document.querySelectorAll("#tbl tbody tr")].map(tr => 
-    [...tr.children].map(td => `"${String(td.innerText).replaceAll('"','""')}"`).join(","));
-  const header = [...document.querySelectorAll("#tbl thead th")].map(th => `"${th.innerText}"`).join(",");
-  const csv = [header, ...rows].join("\n");
-  const blob = new Blob([csv], {type:"text/csv"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "meme-coin-eth-latest.csv"; a.click();
-  URL.revokeObjectURL(url);
-});
+  $('csvBtn').addEventListener('click', ()=>{
+    const csv = toCSV(latestRows);
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'meme_coins.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
 
-$("#runBtn").addEventListener("click", run);
+  // helpers
+  function fmtp(x){ return (x===null || x===undefined || isNaN(x)) ? '' : x.toFixed(3); }
+  function short(a){ if(!a) return ''; return a.slice(0,6)+'…'+a.slice(-4); }
+  function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+})();
 </script>
 </body>
 </html>
