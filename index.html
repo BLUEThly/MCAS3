@@ -1,38 +1,40 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>新規ミームコイン データ収集・分析支援 (Ethereum)</title>
+<title>新規ミームコイン データ収集・分析支援 (Ethereum / latest)</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#0b0f14; color:#e6f0ff;}
-  .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-  h1{font-size:20px; margin:0 0 16px;}
-  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px;}
-  .card { background:#121924; border:1px solid #203042; border-radius:10px; padding:14px;}
-  label{display:block; font-size:12px; color:#96adcb; margin-bottom:6px;}
-  input,button { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #2a3a4f; background:#0e1520; color:#e6f0ff;}
-  input[type="range"]{padding:0;}
-  small{color:#8aa1b9;}
-  .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px;}
-  .actions { display:flex; gap:10px; }
-  .btn-primary { background:#0a6cff; border-color:#2c6fe6; cursor:pointer; }
-  .btn-secondary { background:#0e1520; border-color:#2a3a4f; }
-  .log { white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0e1520; border:1px solid #2a3a4f; border-radius:10px; padding:12px; min-height:220px; overflow:auto;}
-  table{width:100%; border-collapse: collapse; margin-top:14px; font-size:13px;}
-  th,td{border-bottom:1px solid #203042; padding:8px 6px; text-align:left;}
-  th{color:#9fb7d6;}
-  .muted{color:#8aa1b9}
+  :root{--bg:#0f1720;--panel:#141c27;--text:#e6edf3;--muted:#94a3b8;--acc:#60a5fa;--ok:#16a34a;--warn:#f59e0b;--err:#ef4444;border:0}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif}
+  h1{font-size:20px;margin:16px}
+  .page{display:grid;gap:16px;padding:0 16px 24px}
+  .grid{display:grid;gap:12px}
+  .panel{background:var(--panel);border-radius:12px;padding:16px}
+  label{display:block;color:var(--muted);margin:6px 0 4px}
+  input[type="text"],input[type="number"],input[type="date"]{width:100%;background:#0b1118;border:1px solid #1f2937;border-radius:8px;color:var(--text);padding:10px}
+  .row{display:grid;gap:12px}
+  @media(min-width:920px){.row{grid-template-columns:1fr 1fr}}
+  .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+  button{background:#1e293b;color:#fff;border:1px solid #2b3a4e;border-radius:10px;padding:10px 14px;cursor:pointer}
+  button:hover{border-color:#41536b}
+  .btn-primary{background:var(--acc)}
+  .console{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;background:#0b1118;border-radius:8px;padding:12px;min-height:140px}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:10px;border-top:1px solid #1f2937}
+  th{position:sticky;top:0;background:#0b1118}
+  .muted{color:var(--muted)}
+  small{color:var(--muted)}
 </style>
 </head>
 <body>
-<div class="wrap">
   <h1>新規ミームコイン データ収集・分析支援 <span class="muted">(Ethereum / latest)</span></h1>
 
-  <div class="grid">
-    <div class="card">
-      <div class="row">
+  <div class="page">
+    <div class="row">
+      <section class="panel grid" id="form">
         <div>
           <label>観測期間の開始日</label>
           <input type="date" id="startDate" />
@@ -41,267 +43,203 @@
           <label>観測期間の終了日</label>
           <input type="date" id="endDate" />
         </div>
-      </div>
-
-      <div class="row" style="margin-top:10px;">
         <div>
-          <label>急騰判定 期間（日）</label>
-          <input type="number" id="days" min="7" max="60" value="14" />
+          <label>急騰判定 期間（日）<small class="muted">（Gecko版は参考表示のみ）</small></label>
+          <input type="number" id="days" value="14" min="1" step="1" />
         </div>
         <div>
-          <label>急騰判定 倍率（×）</label>
-          <input type="number" id="mult" step="0.1" min="1" value="3" />
+          <label>急騰判定 倍率（×）<small class="muted">（Gecko版は参考表示のみ）</small></label>
+          <input type="number" id="mult" value="3" min="1" step="0.5" />
         </div>
-      </div>
-
-      <div class="row" style="margin-top:10px;">
         <div>
-          <label>LPロック 閾値（%）</label>
-          <input type="number" id="lpMin" min="0" max="100" value="80" />
+          <label>LPロック閾値（%）<small class="muted">（Gecko版は現状未使用）</small></label>
+          <input type="number" id="lpMin" value="80" min="0" max="100" step="5" />
         </div>
         <div>
           <label>最大表示件数（UIのみ）</label>
-          <input type="number" id="maxTokens" min="5" max="200" value="150" />
+          <input type="number" id="maxRows" value="150" min="10" step="10" />
         </div>
-      </div>
+        <div class="grid">
+          <div>
+            <label>(任意) Cloudflare Workers プロキシURL</label>
+            <input type="text" id="workerUrl" placeholder="https://cors-proxy.***.workers.dev/?url=" />
+            <small>モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="runBtn" class="btn-primary">分析開始</button>
+          <button id="csvBtn">CSVをダウンロード</button>
+        </div>
+      </section>
 
-      <div style="margin-top:10px;">
-        <label>（任意）Cloudflare Workers プロキシURL</label>
-        <input id="workerUrl" type="text" placeholder="https://cors-proxy.あなたのID.workers.dev/?url=" />
-        <small>モバイルアプリ内WebView等でCORSが強い場合に設定（保存されます）。</small>
-      </div>
-
-      <div class="actions" style="margin-top:12px;">
-        <button class="btn-primary" id="runBtn">分析開始</button>
-        <button class="btn-secondary" id="csvBtn" disabled>CSVをダウンロード</button>
-      </div>
+      <section class="panel">
+        <div class="console" id="log"></div>
+      </section>
     </div>
 
-    <div class="card">
-      <label>Console Messages</label>
-      <div id="log" class="log"></div>
-    </div>
+    <section class="panel">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Token / Pool</th>
+            <th>Address</th>
+            <th>h1%</th>
+            <th>h6%</th>
+            <th>h24%</th>
+            <th>作成日時</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <small class="muted">© 2025 — Ethereum only（他チェーンは拡張容易な設計） / データ: GeckoTerminal（無料エンドポイント）</small>
+    </section>
   </div>
-
-  <div class="card" style="margin-top:14px;">
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th>#</th><th>Token / Pool</th><th>Address</th><th>h1%</th><th>h6%</th><th>h24%</th><th>作成日時</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <div class="muted" style="margin-top:8px;">© 2025 — Ethereum only（他チェーンは拡張容易な設計）/ データ: GeckoTerminal（無料エンドポイント）</div>
-  </div>
-</div>
 
 <script>
-(function(){
-  const $ = (id)=>document.getElementById(id);
-  const logEl = $('log');
-  const tblBody = document.querySelector('#tbl tbody');
+(() => {
+  const el = id => document.getElementById(id);
+  const logEl = el('log');
+  const tbody = document.querySelector('#tbl tbody');
+  const workerInput = el('workerUrl');
 
-  // ---------- utils ----------
-  const sleep = ms => new Promise(r=>setTimeout(r, ms));
-  const now = ()=> new Date();
+  // 初期値（期間は本日まで / 6週間前を開始）
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  el('endDate').value = fmt(today);
+  const start = new Date(Date.now() - 42*24*3600*1000);
+  el('startDate').value = fmt(start);
 
-  function log(msg, color){
-    const line = typeof msg === 'string' ? msg : JSON.stringify(msg);
-    logEl.innerHTML += (color ? `%c${line}` : line) + "\n";
-    if(color){
-      // keep the color but also print plain text for copy
-      console.log(line);
-    } else {
-      console.log(line);
-    }
+  // 保存されたWorkers URL
+  try {
+    const saved = localStorage.getItem('mca_worker_url');
+    if (saved) workerInput.value = saved;
+  } catch {}
+
+  function log(msg, cls='') {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = msg;
+    logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   }
+  function clearLog() { logEl.textContent=''; }
 
-  function saveWorkerUrl(v){ try{ localStorage.setItem('workerUrl', v||''); }catch{} }
-  function loadWorkerUrl(){ try{ return localStorage.getItem('workerUrl')||''; }catch{ return '';} }
-
-  // ---------- rate limiter (sequential + jitter) ----------
-  const BASE_DELAY = 500;      // 429 対策: 1 リクエストあたり 0.5s
-  const JITTER_MIN = 120, JITTER_MAX = 280;
-
-  async function rateGuard(){
-    const jitter = Math.floor(JITTER_MIN + Math.random()*(JITTER_MAX-JITTER_MIN));
-    await sleep(BASE_DELAY + jitter);
+  function proxied(url){
+    const base = workerInput.value.trim();
+    if (!base) return url; // 直アクセス（CORSが緩い環境向け）
+    return base + encodeURIComponent(url);
   }
 
-  // ---------- proxied fetch with 429-aware retry ----------
-  async function fetchJsonWithRetry(rawUrl, opts={}){
-    const workerBase = $('workerUrl').value.trim();
-    const target = rawUrl;
-    const build = (u)=> workerBase ? (workerBase + encodeURIComponent(u)) : u;
-
-    let attempt = 0;
-    const MAX_ATTEMPTS = 6;
-
-    while(true){
-      await rateGuard(); // まずは間引き
-
-      let res;
-      try{
-        res = await fetch(build(target), { headers: { 'accept': 'application/json' }});
-      }catch(e){
-        // ネットワーク系は少し待ってリトライ
-        attempt++;
-        if(attempt>=MAX_ATTEMPTS) throw e;
-        const backoff = Math.min(4000, 300 * 2**attempt);
-        log(`network error -> retry in ${backoff}ms`);
-        await sleep(backoff);
-        continue;
-      }
-
-      if(res.status === 429){
-        attempt++;
-        const ra = parseInt(res.headers.get('retry-after')||'0',10);
-        const waitMs = ra ? (ra*1000) : Math.min(5000, 400 * 2**attempt);
-        log(`429 Too Many Requests -> retry in ${waitMs}ms`);
-        if(attempt>=MAX_ATTEMPTS) throw new Error('429 repeatedly');
-        await sleep(waitMs);
-        continue;
-      }
-
-      if(!res.ok){
-        // 4xx/5xx 他はそのまま例外
-        const txt = await res.text().catch(()=>String(res.status));
-        throw new Error(`HTTP ${res.status} ${txt.slice(0,200)}`);
-      }
-
-      return res.json();
+  async function backoffFetch(url, opt={}, tries=3){
+    let wait = 800; // ms
+    for (let i=0;i<tries;i++){
+      const res = await fetch(url, opt);
+      if (res.ok) return res;
+      // 429/503はリトライ、それ以外は即終了
+      if (res.status !== 429 && res.status !== 503) throw new Error('HTTP '+res.status);
+      await new Promise(r=>setTimeout(r, wait + Math.random()*400));
+      wait *= 1.8;
     }
+    throw new Error('HTTP backoff exceeded');
   }
 
-  // ---------- API helpers ----------
-  const GT_BASE = 'https://api.geckoterminal.com';
+  // ------- ここが修正点：ethereum → eth -------
+  const GT_BASE   = 'https://api.geckoterminal.com/api/v2';
+  const NETWORK   = 'eth'; // ← ここをethに統一
+  const TREND_URL = `${GT_BASE}/networks/${NETWORK}/trending_pools?aggregate=1&limit=90`;
+  // -------------------------------------------
 
-  async function getTrendingSeeds(limit=30){
-    // Ethereum / trending pools
-    const url = `${GT_BASE}/api/v2/networks/ethereum/trending_pools?aggregate=1&limit=${encodeURIComponent(limit)}`;
-    const j = await fetchJsonWithRetry(url);
-    const arr = (j && j.data) ? j.data : [];
-    // 返って来るのは {id:"eth_0x...", type:"pool", attributes:{...}}
-    return arr.map(x=>x.id);
+  async function fetchTrending(){
+    const url = proxied(TREND_URL);
+    const res = await backoffFetch(url, {}, 4).catch(err=>{
+      log(`trending fetch failed: ${err.message}`, 'err');
+      throw err;
+    });
+    const json = await res.json();
+    if (!json.data) throw new Error('No data');
+    return json.data;
   }
 
-  async function getPoolDetail(poolId){
-    // 単一プールの詳細
-    const url = `${GT_BASE}/api/v2/pools/${encodeURIComponent(poolId)}`;
-    const j = await fetchJsonWithRetry(url);
-    // attributes の中に price_change_percentage や pool_created_at など
-    const d = j && j.data;
-    if(!d) return null;
-    const a = d.attributes || {};
+  function row(obj, i){
+    const attr = obj.attributes || {};
+    const id = (attr.address || '').trim();
+    const pct = attr.price_change_percentage || {};
+    const created = attr.pool_created_at ? new Date(attr.pool_created_at).toISOString().replace('T',' ').slice(0,16) : '';
     return {
-      id: d.id,
-      name: a.name || '',
-      created_at: a.pool_created_at || '',
-      h1: n(a.price_change_percentage && a.price_change_percentage.h1),
-      h6: n(a.price_change_percentage && a.price_change_percentage.h6),
-      h24: n(a.price_change_percentage && a.price_change_percentage.h24),
-      address: a.address || (d.id.split('_')[1] || '')
+      no: i+1,
+      name: attr.name || '',
+      address: id,
+      h1: Number(pct.h1 ?? 0),
+      h6: Number(pct.h6 ?? 0),
+      h24: Number(pct.h24 ?? 0),
+      created
     };
   }
 
-  const n = (v)=> (v===null || v===undefined) ? null : Number(v);
-
-  // ---------- CSV ----------
-  function toCSV(rows){
-    const header = ['#','Token / Pool','Address','h1%','h6%','h24%','CreatedAt'];
-    const body = rows.map((r,i)=>[
-      i+1, wrapCsv(r.name), wrapCsv(r.address), r.h1, r.h6, r.h24, wrapCsv(r.created_at)
-    ].join(','));
-    return [header.join(','), ...body].join('\n');
+  function render(rows){
+    tbody.innerHTML = '';
+    const max = Number(el('maxRows').value || 150);
+    rows.slice(0,max).forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.no}</td>
+        <td>${escapeHtml(r.name)}</td>
+        <td><a href="https://dexscreener.com/ethereum/${r.address}" target="_blank" rel="noopener">${r.address}</a></td>
+        <td>${fmtPct(r.h1)}</td>
+        <td>${fmtPct(r.h6)}</td>
+        <td>${fmtPct(r.h24)}</td>
+        <td>${r.created}</td>`;
+      tbody.appendChild(tr);
+    });
   }
-  function wrapCsv(s){ s = (s||'').toString(); if(/[,"\n]/.test(s)){ return `"${s.replace(/"/g,'""')}"`; } return s; }
 
-  // ---------- main ----------
-  $('workerUrl').value = loadWorkerUrl();
-  $('workerUrl').addEventListener('change', e=> saveWorkerUrl(e.target.value));
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function fmtPct(v){ return (v>=0?'+':'') + (isFinite(v)? v.toFixed(2):'0.00'); }
 
-  // 初期日付
-  const today = new Date();
-  const endISO = new Date(today.getTime()-24*3600*1000).toISOString().slice(0,10);
-  const startISO = new Date(today.getTime()-14*24*3600*1000).toISOString().slice(0,10);
-  $('startDate').value = startISO;
-  $('endDate').value = endISO;
-
-  let latestRows = [];
-
-  $('runBtn').addEventListener('click', async ()=>{
-    logEl.textContent = '';
-    tblBody.innerHTML = '';
-    latestRows = [];
-    const days = Number($('days').value||14);
-    const mult = Number($('mult').value||3);
-    const lpMin = Number($('lpMin').value||80);
-    const maxTokens = Math.max(5, Math.min(200, Number($('maxTokens').value||100)));
-
-    const start = Math.floor(new Date($('startDate').value).getTime()/1000);
-    const end   = Math.floor(new Date($('endDate').value).getTime()/1000);
-    log(`Params: days=${days}, mult=${mult}, LP≥${lpMin}%, start=${start}, end=${end}`);
-
-    // まずは seed 収集
-    let seeds = [];
-    try{
-      seeds = await getTrendingSeeds(30); // まず 30 まで
-      log(`GeckoTerminal trending seeds: ${seeds.length}`);
-    }catch(e){
-      log(`trending fetch failed: ${e.message}`);
-    }
-
-    log(`Total unique seeds: ${seeds.length}`);
-
-    // 各 seed を順次処理（※並列禁止 / レートガードあり）
-    let shown = 0, idx=0;
-    for(const poolId of seeds){
-      idx++;
-      try{
-        const d = await getPoolDetail(poolId);
-        if(!d) continue;
-
-        // ここに必要であれば LP ロックや急騰判定のフィルタを追加
-        // 今回は h24 が存在するものを表示
-        latestRows.push(d);
-        if(shown < maxTokens){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${shown+1}</td>
-            <td>${escapeHtml(d.name||'')}</td>
-            <td>${short(d.address)}</td>
-            <td>${fmtp(d.h1)}</td>
-            <td>${fmtp(d.h6)}</td>
-            <td>${fmtp(d.h24)}</td>
-            <td>${escapeHtml(d.created_at||'')}</td>`;
-          tblBody.appendChild(tr);
-          shown++;
-        }
-      }catch(e){
-        log(`fetch failed: ${e.message}`);
-      }
-    }
-
-    log(`完了: ${shown} hits (showing ${shown})`);
-    $('csvBtn').disabled = latestRows.length===0;
-  });
-
-  $('csvBtn').addEventListener('click', ()=>{
-    const csv = toCSV(latestRows);
+  // CSV
+  el('csvBtn').addEventListener('click', ()=>{
+    const rows = [...tbody.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.textContent));
+    if (!rows.length){ alert('データがありません'); return; }
+    const head = ['#','Token/Pool','Address','h1%','h6%','h24%','CreatedAt'];
+    const csv = [head, ...rows].map(r => r.map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n');
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'meme_coins.csv';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+    a.href = URL.createObjectURL(blob);
+    a.download = `meme_trending_eth_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
 
-  // helpers
-  function fmtp(x){ return (x===null || x===undefined || isNaN(x)) ? '' : x.toFixed(3); }
-  function short(a){ if(!a) return ''; return a.slice(0,6)+'…'+a.slice(-4); }
-  function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  // 実行
+  el('runBtn').addEventListener('click', async ()=>{
+    // Workersの保存
+    try {
+      const val = workerInput.value.trim();
+      if (val) localStorage.setItem('mca_worker_url', val);
+    } catch {}
+    clearLog();
+    const s = el('startDate').value, e = el('endDate').value;
+    const days = Number(el('days').value||14), mult = Number(el('mult').value||3);
+    const startTs = Math.floor(new Date(s).getTime()/1000);
+    const endTs   = Math.floor(new Date(e).getTime()/1000);
+    log(`Params: days=${days}, mult=${mult}, LP≥${el('lpMin').value}%, start=${startTs}, end=${endTs}`);
+
+    tbody.innerHTML = '';
+    let seeds = [];
+    try {
+      const items = await fetchTrending();
+      log(`GeckoTerminal trending seeds: ${items.length}`);
+      seeds = items.map((d,i)=>row(d,i));
+      log(`Total unique seeds: ${seeds.length}`);
+      render(seeds);
+      log(`完了: ${seeds.length} hits (showing ${Math.min(seeds.length, Number(el('maxRows').value||150))})`, 'ok');
+    } catch(err){
+      log(`trending fetch failed: ${err.message}`, 'err');
+      log('完了: 0 hits (showing 0)', 'warn');
+    }
+  });
+
 })();
 </script>
 </body>
