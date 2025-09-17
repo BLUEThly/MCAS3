@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間＋進捗/ログ</title>
+<title>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間</title>
 <style>
   :root{
     --bg:#0f172a; --panel:#0b1220; --text:#e5e7eb; --muted:#9ca3af;
@@ -55,16 +55,14 @@
 
   <div class="row" style="margin-top:8px">
     <div class="ctl">
-      <label>抽出期間（開始, カレンダー）</label>
-      <input id="dateStart" type="date" />
+      <label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date" />
     </div>
     <div class="ctl">
-      <label>抽出期間（終了, カレンダー）</label>
-      <input id="dateEnd" type="date" />
+      <label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date" />
     </div>
     <div class="ctl" style="flex:1">
       <label>（任意）CORS プロキシ</label>
-      <input id="cors" placeholder="例: https://cors.isomorphic-git.org/ または https://xxx.workers.dev/?url=">
+      <input id="cors" placeholder="空でも可／例: https://cors.isomorphic-git.org/ または https://xxx.workers.dev/?url=">
     </div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -115,49 +113,49 @@ function log(msg, isErr=false){
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
 
-/* CORS 自動判別:
-   - base に '{url}' が含まれる → {url} を encodeURIComponent(url) で置換
-   - '?url='（または末尾が '?' で 'url=' を含む） → 末尾に encodeURIComponent(url) を連結
-   - それ以外 → 末尾の '/' を1本に整えて、非エンコードで連結（isomorphic-git系）
-*/
-function withCors(url, corsBase){
-  if(!corsBase) return url;
-  const b = corsBase.trim();
-  if(/\{url\}/i.test(b)){
-    return b.replace(/\{url\}/ig, encodeURIComponent(url));
-  }
-  // 代表: https://xxx.workers.dev/?url=
-  if(/[\?&]url=$/i.test(b) || /\?$/.test(b) && /url=/.test(b)){
-    return b + encodeURIComponent(url);
-  }
-  // 万一「…/?url=」の最後に '/' が入っていた場合に備えた補正
-  if(/[\?&]url=\/$/.test(b)){
-    return b.replace(/\/$/, '') + encodeURIComponent(url);
-  }
-  // prefix型（isomorphic-git 等）
-  return b.replace(/\/+$/,'') + '/' + url;
+/* CORS 経路の自動判別 + 4段フォールバック */
+function buildProxiedUrl(base, url){
+  if(!base) return url;                         // 直
+  const b = base.trim();
+  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig, encodeURIComponent(url));   // テンプレ型
+  if(/[\?&]url=$/i.test(b) || (/\?$/.test(b) && /url=/.test(b))) return b + encodeURIComponent(url); // ?url=型
+  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/, '') + encodeURIComponent(url);// ?url=/ 修正
+  return b.replace(/\/+$/,'') + '/' + url;      // prefix型
+}
+async function getJsonWithBase(url, base, opt){
+  const u = buildProxiedUrl(base, url);
+  return await _fetchJson(u, opt);
+}
+async function _fetchJson(u, {timeout=10000, label='' }={}){
+  const controller = new AbortController();
+  const tid = setTimeout(()=>controller.abort('timeout'), timeout);
+  try{
+    if(label) log(`GET ${label}: ${u.slice(0,120)}`);
+    const res = await fetch(u, {signal: controller.signal});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ct = (res.headers.get('content-type')||'').toLowerCase();
+    if(ct.includes('application/json')){ clearTimeout(tid); return await res.json(); }
+    const txt = await res.text(); clearTimeout(tid);
+    try{ return JSON.parse(txt); }catch(_){ throw new Error(`Non-JSON body (${txt.slice(0,80)}…)`); }
+  }catch(e){ clearTimeout(tid); throw e; }
 }
 
-async function getJson(url, {corsBase='', tries=3, pause=800, timeout=10000, label=''}={}){
-  let last;
-  for(let i=0;i<tries;i++){
-    const controller = new AbortController();
-    const tid = setTimeout(()=>controller.abort('timeout'), timeout);
-    try{
-      const u = withCors(url, corsBase);
-      if(label) log(`GET ${label} (${i+1}/${tries})`);
-      const res = await fetch(u, {signal: controller.signal});
-      clearTimeout(tid);
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }catch(e){
-      clearTimeout(tid);
-      last = e;
-      log(`…retry due to ${e.message||e}`, true);
-      await sleep(pause*(i+1));
-    }
+/* メインのJSON取得：直→ユーザー指定→内蔵3種（isomorphic/corsproxy.io/allorigins）で順に試行 */
+async function getJson(url, {label='', timeout=10000}={}){
+  const userBase = by('cors').value.trim();
+  const bases = [
+    '',                                    // 1. 直
+    userBase || null,                      // 2. ユーザー指定（ある場合）
+    'https://cors.isomorphic-git.org/',    // 3. prefix型
+    'https://corsproxy.io/?url=',          // 4. ?url=型
+    'https://api.allorigins.win/raw?url='  // 5. ?url=型
+  ].filter(Boolean);
+  let lastErr;
+  for(const b of bases){
+    try{ return await getJsonWithBase(url, b, {timeout, label}); }
+    catch(e){ lastErr = e; log(`…via ${b||'DIRECT'} failed: ${e.message||e}`, true); }
   }
-  throw last;
+  throw lastErr;
 }
 
 /* CSV helpers */
@@ -180,11 +178,10 @@ function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00')
 function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000); }
 
 /* ===== Trending ===== */
-async function getTrendingSeeds({limit=20, corsBase}){
-  // GeckoTerminal
+async function getTrendingSeeds({limit=20}){
+  // GeckoTerminal（優先）
   try{
-    const url = `https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`;
-    const j = await getJson(url, {corsBase, tries:2, pause:800, timeout:10000, label:'Gecko trending'});
+    const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`, {label:'Gecko trending'});
     const arr = (j?.data||[]).slice(0,limit);
     const pools = arr.map(x=>({
       poolAddress: x?.attributes?.address,
@@ -194,8 +191,8 @@ async function getTrendingSeeds({limit=20, corsBase}){
     })).filter(x=>x.poolAddress);
     if(pools.length){ log(`Gecko trending: ${pools.length} seeds`); return {seeds:pools, source:'GeckoTerminal'}; }
   }catch(e){ log(`Gecko trending failed: ${e.message||e}`, true); }
-  // DexScreener
-  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {corsBase, tries:3, pause:1000, timeout:10000, label:'DexScreener trending'});
+  // DexScreener（フォールバック）
+  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {label:'DexScreener trending'});
   const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum'||p.chainId==='eth') ).slice(0,limit).map(p=>({
     poolAddress: p.pairAddress,
     base: p.baseToken?.symbol||'',
@@ -207,11 +204,10 @@ async function getTrendingSeeds({limit=20, corsBase}){
 }
 
 /* ===== OHLCV & Spike ===== */
-async function getDailyOHLCV_eth_pool(poolAddress, {limit=120, corsBase}={}){
-  const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`;
-  return (await getJson(url, {corsBase, tries:3, pause:1200, timeout:12000, label:`OHLCV ${poolAddress.slice(0,6)}…`}))?.data?.attributes?.candles?.map(
-    x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]})
-  ) || [];
+async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
+  const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
+  const arr = j?.data?.attributes?.candles || [];
+  return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
 }
 function computeSpike14(ohlc, days=14){
   if(!ohlc?.length) return null;
@@ -235,10 +231,8 @@ function computeSpike14(ohlc, days=14){
 /* ===== LP holders (Ethplorer) ===== */
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
-const ETHPLORER_KEYS=['freekey'];
-async function getTopHolders_lp(lpAddress,{corsBase,apiKey}={}){
-  const url=`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=${apiKey||ETHPLORER_KEYS[0]}&limit=50`;
-  const j = await getJson(url,{corsBase,tries:3,pause=1500,timeout=12000,label:`TopHolders ${lpAddress.slice(0,6)}…`});
+async function getTopHolders_lp(lpAddress){
+  const j = await getJson(`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
   return j?.holders||[];
 }
 function estimateLP(hs=[]){
@@ -273,7 +267,7 @@ async function run(){
   setBar(0); by('progress').textContent='preparing…';
 
   const days=+by('days').value||14, mult=+by('mult').value||3, lpmin=+by('lpmin').value||80, seedLimit=+by('seedLimit').value||20;
-  const strict=by('strict').checked, corsBase=by('cors').value.trim();
+  const strict=by('strict').checked;
   const {startTs,endTs}=datePrefToUnix();
 
   by('params').textContent=[
@@ -283,7 +277,7 @@ async function run(){
 
   try{
     log('トレンド取得開始');
-    const {seeds,source} = await getTrendingSeeds({limit:seedLimit, corsBase});
+    const {seeds,source} = await getTrendingSeeds({limit:seedLimit});
     if(CANCEL) throw new Error('cancelled');
     const uniq=new Map(); for(const s of seeds){ uniq.set(s.poolAddress.toLowerCase(), s); }
     const seedArr=[...uniq.values()];
@@ -297,14 +291,14 @@ async function run(){
       log(`OHLCV/LP 取得: ${s.poolAddress}`);
       setBar(done/seedArr.length);
 
-      let candles=[]; try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120,corsBase}); }catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); }
+      let candles=[]; try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120}); }catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); }
       if(startTs||endTs){
         candles = candles.filter(c=> (!startTs||c.ts>=startTs) && (!endTs||c.ts<=endTs) );
       }
       const spike = computeSpike14(candles, days);
 
       let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
-      try{ const hs=await getTopHolders_lp(s.poolAddress,{corsBase}); lpInfo=estimateLP(hs); }catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); }
+      try{ const hs=await getTopHolders_lp(s.poolAddress); lpInfo=estimateLP(hs); }catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); }
 
       const multV=spike?.multiple_14d_close||null;
       let passes=true, reason=[];
