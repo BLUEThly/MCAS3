@@ -51,7 +51,6 @@
     <div class="ctl"><label>LP% しきい値（burn/locker合算）</label><input id="lpmin" type="number" value="80" min="0" max="100"></div>
     <div class="ctl"><label>Trending 種（上限）</label><input id="seedLimit" type="number" value="20" min="5" max="100"></div>
     <div class="ctl"><label>厳密モード</label><div><input id="strict" type="checkbox" checked> <span class="pill">days×mult と LP% フィルタを適用</span></div></div>
-    <!-- ★ 追加：LP%必須トグル -->
     <div class="ctl"><label>LP%必須</label><div><input id="lpRequired" type="checkbox" checked> <span class="pill">LP%が取れない行は除外</span></div></div>
   </div>
 
@@ -66,7 +65,7 @@
     </div>
     <div class="ctl" style="flex:1">
       <label>（任意）CORS プロキシ</label>
-      <input id="cors" placeholder="空でも可／例: https://cors.isomorphic-git.org/ または https://xxx.workers.dev/?url=">
+      <input id="cors" placeholder="空でも可／例: https://<your-worker>.workers.dev/?url=">
     </div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -108,6 +107,7 @@ const by = (id)=>document.getElementById(id);
 const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 const ts2 = (t)=> new Date(t*1000).toLocaleString();
 const fmtNum = (x,d=2)=> (x==null||Number.isNaN(+x))?'':(+x).toFixed(d);
+const jitter = (min=120,max=420)=> Math.floor(Math.random()*(max-min+1))+min;
 
 function log(msg, isErr=false){
   const el = by('notes');
@@ -117,16 +117,16 @@ function log(msg, isErr=false){
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
 
-/* ===== CORS 経路（自動判別＋フォールバック） ===== */
+/* ===== CORS（自動判別＋フォールバック） ===== */
 function buildProxiedUrl(base, url){
-  if(!base) return url;                         // 直
+  if(!base) return url;
   const b = base.trim();
-  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig, encodeURIComponent(url));        // テンプレ型
-  if(/[\?&]url=$/i.test(b) || (/\?$/.test(b) && /url=/.test(b))) return b + encodeURIComponent(url); // ?url=型
-  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/, '') + encodeURIComponent(url);     // ?url=/ 修正
-  return b.replace(/\/+$/,'') + '/' + url;      // prefix型
+  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig, encodeURIComponent(url));
+  if(/[\?&]url=$/i.test(b) || (/\?$/.test(b) && /url=/.test(b))) return b + encodeURIComponent(url);
+  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/, '') + encodeURIComponent(url);
+  return b.replace(/\/+$/,'') + '/' + url;
 }
-async function _fetchJson(u, {timeout=10000, label='' }={}){
+async function _fetchJson(u, {timeout=12000, label='' }={}){
   const controller = new AbortController();
   const tid = setTimeout(()=>controller.abort('timeout'), timeout);
   try{
@@ -139,11 +139,11 @@ async function _fetchJson(u, {timeout=10000, label='' }={}){
     try{ return JSON.parse(txt); }catch(_){ throw new Error(`Non-JSON body (${txt.slice(0,80)}…)`); }
   }catch(e){ clearTimeout(tid); throw e; }
 }
-async function getJson(url, {label='', timeout=10000}={}){
+async function getJson(url, {label='', timeout=12000}={}){
   const userBase = by('cors').value.trim();
   const bases = [
     '',                                    // 1. 直
-    userBase || null,                      // 2. ユーザー指定（あれば）
+    userBase || null,                      // 2. ユーザー指定
     'https://cors.isomorphic-git.org/',    // 3. prefix型
     'https://corsproxy.io/?url=',          // 4. ?url=型
     'https://api.allorigins.win/raw?url='  // 5. ?url=型
@@ -174,12 +174,12 @@ function dl(name, text){
 
 /* ===== Dates -> UNIX (local) ===== */
 function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return Math.floor(d.getTime()/1000); }
-function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000) + 1; } // +1s 安全余裕
+function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000)+1; }
 
 /* ===== レート制御（429対策） ===== */
 let lastEthCall = 0, lastGeckoCall = 0;
-const ETHPLORER_MIN_INTERVAL = 1200; // 1.2s/req
-const GECKO_MIN_INTERVAL     =  600; // 0.6s/req
+const ETHPLORER_MIN_INTERVAL = 2800; // 2.8s/req（強め）
+const GECKO_MIN_INTERVAL     =  700; // 0.7s/req
 
 /* ===== Trending ===== */
 async function getTrendingSeeds({limit=20}){
@@ -207,12 +207,10 @@ async function getTrendingSeeds({limit=20}){
 
 /* ===== OHLCV（日足）＆ 14日スパイク ===== */
 async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
-  // スロットリング
   const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL - Date.now());
-  if (wait > 0) await sleep(wait);
+  if (wait > 0) await sleep(wait + jitter());
   lastGeckoCall = Date.now();
 
-  // 429時の簡易バックオフ（3回）
   for(let a=0;a<3;a++){
     try{
       const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
@@ -220,7 +218,7 @@ async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
       return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
     }catch(e){
       const msg = String(e.message||e);
-      if(msg.includes('429')){ await sleep(1200 + a*600); continue; }
+      if(msg.includes('429')){ await sleep(1500 + a*800); continue; }
       throw e;
     }
   }
@@ -250,26 +248,33 @@ const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
 
 async function getTopHolders_lp(lpAddress){
-  for (let attempt=0; attempt<4; attempt++){
-    // スロットリング
+  // Ethplorer は公開プロキシ経由だと 400/406 が出やすいので、
+  // ユーザー指定CORS（Workers等）がある場合はそれを優先して使う。
+  const userBase = by('cors').value.trim();
+  const build = (suf)=> (userBase? buildProxiedUrl(userBase, `https://api.ethplorer.io/${suf}`) : `https://api.ethplorer.io/${suf}`);
+
+  for (let attempt=0; attempt<6; attempt++){
     const wait = Math.max(0, lastEthCall + ETHPLORER_MIN_INTERVAL - Date.now());
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) await sleep(wait + jitter());
     lastEthCall = Date.now();
 
+    const url = build(`getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`);
     try{
-      const j = await getJson(`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
+      const j = await _fetchJson(url, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
       return j?.holders || [];
     }catch(e){
       const msg = String(e.message||e);
-      if (msg.includes('429')) { await sleep(2000 + attempt*600); continue; } // レート制限
-      if (msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('timeout')) {
-        await sleep(1000 + attempt*300); continue; // ネット系
+      // 429 は待って再試行、400/406 でもプロキシが落ち着くと返るケースあり
+      if (msg.includes('429')) { await sleep(2200 + attempt*600); continue; }
+      if (msg.includes('400') || msg.includes('406') || msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('timeout')) {
+        await sleep(1400 + attempt*500); continue;
       }
-      throw e; // 400/406は他の経路に任せる
+      throw e;
     }
   }
   throw new Error('TopHolders: retries exhausted');
 }
+
 function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
   let burnPct=0,lockPct=0,topLocker='';
@@ -320,7 +325,6 @@ async function run(){
     if(seedArr.length===0){ by('progress').textContent='seed=0'; setBar(0); return; }
 
     const rows=[]; let done=0;
-    // 成否要約
     let tphOk=0, tphFail=0, ohlcvOk=0, ohlcvFail=0;
 
     for(const s of seedArr){
@@ -371,7 +375,6 @@ async function run(){
       done++; setBar(done/seedArr.length);
     }
 
-    // 表示・要約
     renderTable(rows,{strict, lpmin});
     LAST_ROWS=rows;
     const shown = strict ? rows.filter(r=>r.__passes).length : rows.length;
