@@ -51,14 +51,18 @@
     <div class="ctl"><label>LP% しきい値（burn/locker合算）</label><input id="lpmin" type="number" value="80" min="0" max="100"></div>
     <div class="ctl"><label>Trending 種（上限）</label><input id="seedLimit" type="number" value="20" min="5" max="100"></div>
     <div class="ctl"><label>厳密モード</label><div><input id="strict" type="checkbox" checked> <span class="pill">days×mult と LP% フィルタを適用</span></div></div>
+    <!-- ★ 追加：LP%必須トグル -->
+    <div class="ctl"><label>LP%必須</label><div><input id="lpRequired" type="checkbox" checked> <span class="pill">LP%が取れない行は除外</span></div></div>
   </div>
 
   <div class="row" style="margin-top:8px">
     <div class="ctl">
-      <label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date" />
+      <label>抽出期間（開始, カレンダー）</label>
+      <input id="dateStart" type="date" />
     </div>
     <div class="ctl">
-      <label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date" />
+      <label>抽出期間（終了, カレンダー）</label>
+      <input id="dateEnd" type="date" />
     </div>
     <div class="ctl" style="flex:1">
       <label>（任意）CORS プロキシ</label>
@@ -113,24 +117,20 @@ function log(msg, isErr=false){
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
 
-/* CORS 経路の自動判別 + 4段フォールバック */
+/* ===== CORS 経路（自動判別＋フォールバック） ===== */
 function buildProxiedUrl(base, url){
   if(!base) return url;                         // 直
   const b = base.trim();
-  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig, encodeURIComponent(url));   // テンプレ型
+  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig, encodeURIComponent(url));        // テンプレ型
   if(/[\?&]url=$/i.test(b) || (/\?$/.test(b) && /url=/.test(b))) return b + encodeURIComponent(url); // ?url=型
-  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/, '') + encodeURIComponent(url);// ?url=/ 修正
+  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/, '') + encodeURIComponent(url);     // ?url=/ 修正
   return b.replace(/\/+$/,'') + '/' + url;      // prefix型
-}
-async function getJsonWithBase(url, base, opt){
-  const u = buildProxiedUrl(base, url);
-  return await _fetchJson(u, opt);
 }
 async function _fetchJson(u, {timeout=10000, label='' }={}){
   const controller = new AbortController();
   const tid = setTimeout(()=>controller.abort('timeout'), timeout);
   try{
-    if(label) log(`GET ${label}: ${u.slice(0,120)}`);
+    if(label) log(`GET ${label}: ${u.slice(0,140)}`);
     const res = await fetch(u, {signal: controller.signal});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const ct = (res.headers.get('content-type')||'').toLowerCase();
@@ -139,26 +139,25 @@ async function _fetchJson(u, {timeout=10000, label='' }={}){
     try{ return JSON.parse(txt); }catch(_){ throw new Error(`Non-JSON body (${txt.slice(0,80)}…)`); }
   }catch(e){ clearTimeout(tid); throw e; }
 }
-
-/* メインのJSON取得：直→ユーザー指定→内蔵3種（isomorphic/corsproxy.io/allorigins）で順に試行 */
 async function getJson(url, {label='', timeout=10000}={}){
   const userBase = by('cors').value.trim();
   const bases = [
     '',                                    // 1. 直
-    userBase || null,                      // 2. ユーザー指定（ある場合）
+    userBase || null,                      // 2. ユーザー指定（あれば）
     'https://cors.isomorphic-git.org/',    // 3. prefix型
     'https://corsproxy.io/?url=',          // 4. ?url=型
     'https://api.allorigins.win/raw?url='  // 5. ?url=型
   ].filter(Boolean);
   let lastErr;
   for(const b of bases){
-    try{ return await getJsonWithBase(url, b, {timeout, label}); }
+    const u = buildProxiedUrl(b, url);
+    try{ return await _fetchJson(u, {timeout, label}); }
     catch(e){ lastErr = e; log(`…via ${b||'DIRECT'} failed: ${e.message||e}`, true); }
   }
   throw lastErr;
 }
 
-/* CSV helpers */
+/* ===== CSV ===== */
 function toCSV(rows){
   const esc = (v)=> v==null ? '' : /[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);
   const header = Object.keys(rows[0]||{});
@@ -173,13 +172,17 @@ function dl(name, text){
   URL.revokeObjectURL(a.href);
 }
 
-/* Dates -> UNIX (local) */
+/* ===== Dates -> UNIX (local) ===== */
 function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return Math.floor(d.getTime()/1000); }
-function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000); }
+function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000) + 1; } // +1s 安全余裕
+
+/* ===== レート制御（429対策） ===== */
+let lastEthCall = 0, lastGeckoCall = 0;
+const ETHPLORER_MIN_INTERVAL = 1200; // 1.2s/req
+const GECKO_MIN_INTERVAL     =  600; // 0.6s/req
 
 /* ===== Trending ===== */
 async function getTrendingSeeds({limit=20}){
-  // GeckoTerminal（優先）
   try{
     const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`, {label:'Gecko trending'});
     const arr = (j?.data||[]).slice(0,limit);
@@ -191,7 +194,6 @@ async function getTrendingSeeds({limit=20}){
     })).filter(x=>x.poolAddress);
     if(pools.length){ log(`Gecko trending: ${pools.length} seeds`); return {seeds:pools, source:'GeckoTerminal'}; }
   }catch(e){ log(`Gecko trending failed: ${e.message||e}`, true); }
-  // DexScreener（フォールバック）
   const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {label:'DexScreener trending'});
   const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum'||p.chainId==='eth') ).slice(0,limit).map(p=>({
     poolAddress: p.pairAddress,
@@ -203,11 +205,26 @@ async function getTrendingSeeds({limit=20}){
   return {seeds, source:'DexScreener'};
 }
 
-/* ===== OHLCV & Spike ===== */
+/* ===== OHLCV（日足）＆ 14日スパイク ===== */
 async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
-  const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
-  const arr = j?.data?.attributes?.candles || [];
-  return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
+  // スロットリング
+  const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL - Date.now());
+  if (wait > 0) await sleep(wait);
+  lastGeckoCall = Date.now();
+
+  // 429時の簡易バックオフ（3回）
+  for(let a=0;a<3;a++){
+    try{
+      const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
+      const arr = j?.data?.attributes?.candles || [];
+      return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
+    }catch(e){
+      const msg = String(e.message||e);
+      if(msg.includes('429')){ await sleep(1200 + a*600); continue; }
+      throw e;
+    }
+  }
+  throw new Error('OHLCV: retries exhausted');
 }
 function computeSpike14(ohlc, days=14){
   if(!ohlc?.length) return null;
@@ -228,12 +245,30 @@ function computeSpike14(ohlc, days=14){
   };
 }
 
-/* ===== LP holders (Ethplorer) ===== */
+/* ===== LP holders（Ethplorer） ===== */
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
+
 async function getTopHolders_lp(lpAddress){
-  const j = await getJson(`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
-  return j?.holders||[];
+  for (let attempt=0; attempt<4; attempt++){
+    // スロットリング
+    const wait = Math.max(0, lastEthCall + ETHPLORER_MIN_INTERVAL - Date.now());
+    if (wait > 0) await sleep(wait);
+    lastEthCall = Date.now();
+
+    try{
+      const j = await getJson(`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
+      return j?.holders || [];
+    }catch(e){
+      const msg = String(e.message||e);
+      if (msg.includes('429')) { await sleep(2000 + attempt*600); continue; } // レート制限
+      if (msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('timeout')) {
+        await sleep(1000 + attempt*300); continue; // ネット系
+      }
+      throw e; // 400/406は他の経路に任せる
+    }
+  }
+  throw new Error('TopHolders: retries exhausted');
 }
 function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
@@ -267,11 +302,11 @@ async function run(){
   setBar(0); by('progress').textContent='preparing…';
 
   const days=+by('days').value||14, mult=+by('mult').value||3, lpmin=+by('lpmin').value||80, seedLimit=+by('seedLimit').value||20;
-  const strict=by('strict').checked;
+  const strict=by('strict').checked, lpRequired=by('lpRequired').checked;
   const {startTs,endTs}=datePrefToUnix();
 
   by('params').textContent=[
-    `Params: days=${days}, mult=${mult}, LP>=${lpmin}%`,
+    `Params: days=${days}, mult=${mult}, LP>=${lpmin}%, lpRequired=${lpRequired}`,
     `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`
   ].join('\n');
 
@@ -285,26 +320,37 @@ async function run(){
     if(seedArr.length===0){ by('progress').textContent='seed=0'; setBar(0); return; }
 
     const rows=[]; let done=0;
+    // 成否要約
+    let tphOk=0, tphFail=0, ohlcvOk=0, ohlcvFail=0;
+
     for(const s of seedArr){
       if(CANCEL) throw new Error('cancelled');
       by('progress').textContent=`${done}/${seedArr.length} 取得中… ${s.name||''}`;
       log(`OHLCV/LP 取得: ${s.poolAddress}`);
       setBar(done/seedArr.length);
 
-      let candles=[]; try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120}); }catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); }
+      // OHLCV
+      let candles=[];
+      try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120}); ohlcvOk++; }
+      catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); ohlcvFail++; }
       if(startTs||endTs){
         candles = candles.filter(c=> (!startTs||c.ts>=startTs) && (!endTs||c.ts<=endTs) );
       }
       const spike = computeSpike14(candles, days);
 
+      // LP
       let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
-      try{ const hs=await getTopHolders_lp(s.poolAddress); lpInfo=estimateLP(hs); }catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); }
+      try{ const hs=await getTopHolders_lp(s.poolAddress); lpInfo=estimateLP(hs); tphOk++; }
+      catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); tphFail++; }
 
+      // 判定
       const multV=spike?.multiple_14d_close||null;
       let passes=true, reason=[];
       if(strict){
-        if(!(multV && multV>=mult)){ passes=false; reason.push('mult'); }
-        if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)){ passes=false; reason.push('lp'); }
+        if(!(multV && multV>=mult)) { passes=false; reason.push('mult'); }
+        if(lpRequired){
+          if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)) { passes=false; reason.push('lp'); }
+        }
       }
 
       rows.push({
@@ -325,11 +371,13 @@ async function run(){
       done++; setBar(done/seedArr.length);
     }
 
-    renderTable(rows,{strict});
+    // 表示・要約
+    renderTable(rows,{strict, lpmin});
     LAST_ROWS=rows;
     const shown = strict ? rows.filter(r=>r.__passes).length : rows.length;
     by('progress').textContent = `完了: ${shown} hits（total ${rows.length}）`;
-    by('csvBtn').disabled = rows.length===0 ? true : false;
+    by('csvBtn').disabled = rows.length===0;
+    log(`要約: OHLCV 成功 ${ohlcvOk}/失敗 ${ohlcvFail}｜TopHolders 成功 ${tphOk}/失敗 ${tphFail}`);
     log('スキャン完了');
   }catch(e){
     if(String(e)==='Error: cancelled'){ log('ユーザーがキャンセルしました'); by('progress').textContent='cancelled'; }
@@ -339,7 +387,7 @@ async function run(){
   }
 }
 
-function renderTable(rows,{strict}){
+function renderTable(rows,{strict, lpmin}){
   const show = strict ? rows.filter(r=>r.__passes) : rows;
   let html = `<table><thead>
     <tr>
@@ -350,7 +398,7 @@ function renderTable(rows,{strict}){
   show.forEach((r,i)=>{
     const m=+r.multiple_14d_close||0;
     const mcls = m>=3?'good':(m>=2?'warn':'');
-    const lpcls = (r.lp_pct_est>=80)?'good':(r.lp_pct_est>=50?'warn':'bad');
+    const lpcls = (r.lp_pct_est>=lpmin)?'good':(r.lp_pct_est>=50?'warn':'bad');
     html += `<tr>
       <td class="num">${i+1}</td>
       <td>${r.token_pool||''}</td>
@@ -372,7 +420,7 @@ function renderTable(rows,{strict}){
   by('wrapTable').innerHTML = html;
 }
 
-/* UI */
+/* ===== UI ===== */
 by('runBtn').addEventListener('click', run);
 by('cancelBtn').addEventListener('click', ()=>{ CANCEL=true; by('cancelBtn').disabled=true; });
 by('csvBtn').addEventListener('click', ()=>{
