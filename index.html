@@ -3,58 +3,80 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Memecoin Screener (ETH, strict mode ready)</title>
+<title>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間</title>
 <style>
-  :root {
-    --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
-    --link:#93c5fd; --chip:#1f2937; --table:#0b1220;
+  :root{
+    --bg:#0f172a; --panel:#0b1220; --text:#e5e7eb; --muted:#9ca3af;
+    --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; --link:#93c5fd;
+    --chip:#1f2937; --table:#0b1220; --border:#1f2937;
   }
   html,body{background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";margin:0}
-  header{padding:18px 14px;border-bottom:1px solid #1f2937;background:#0b1220;position:sticky;top:0;z-index:5}
-  h1{font-size:16px;margin:0 0 6px}
+  header{padding:18px 14px;border-bottom:1px solid var(--border);background:var(--panel)}
+  h1{font-size:16px;margin:0 0 10px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
   .ctl{display:flex;flex-direction:column;gap:6px}
   label{font-size:12px;color:var(--muted)}
   input,select,button{background:#0f172a;border:1px solid #293145;color:var(--text);padding:8px 10px;border-radius:8px;font-size:14px}
   input[type="checkbox"]{width:auto}
+  button{cursor:pointer}
   button.primary{background:#1d4ed8;border-color:#1d4ed8}
-  button.ghost{background:#0b1220}
+  button.ghost{background:var(--panel)}
   .pill{background:var(--chip);padding:6px 10px;border-radius:999px;color:#cbd5e1;font-size:12px}
   main{padding:16px}
-  .log{white-space:pre-wrap;background:#0b1220;border:1px solid #1f2937;border-radius:10px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .log{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   table{width:100%;border-collapse:separate;border-spacing:0 6px}
   thead th{font-size:12px;color:#9ca3af;text-align:left;padding:6px 8px}
   tbody tr{background:var(--table)}
-  td{padding:8px 8px;font-size:13px;border-top:1px solid #1f2937;border-bottom:1px solid #1f2937}
-  tbody tr td:first-child{border-left:1px solid #1f2937;border-radius:8px 0 0 8px}
-  tbody tr td:last-child{border-right:1px solid #1f2937;border-radius:0 8px 8px 0}
+  td{padding:8px 8px;font-size:13px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+  tbody tr td:first-child{border-left:1px solid var(--border);border-radius:8px 0 0 8px}
+  tbody tr td:last-child{border-right:1px solid var(--border);border-radius:0 8px 8px 0}
   a{color:var(--link);text-decoration:none}
   .num{font-variant-numeric:tabular-nums}
   .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
   footer{opacity:.7;margin-top:16px;font-size:12px}
+  details{margin-top:6px}
 </style>
 </head>
 <body>
 <header>
-  <h1>ミームコイン自動スクリーニング（ETH）— 厳密モード対応</h1>
+  <h1>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間</h1>
+
   <div class="row">
     <div class="ctl"><label>days（急騰検出の直近日数）</label><input id="days" type="number" value="14" min="7" max="30"></div>
-    <div class="ctl"><label>mult（ピーク/直前minの倍率しきい値）</label><input id="mult" type="number" value="3" min="1.2" step="0.1"></div>
-    <div class="ctl"><label>LP% しきい値（burn/locker合算推定）</label><input id="lpmin" type="number" value="80" min="0" max="100"></div>
+    <div class="ctl"><label>mult（ピーク/直前minの倍率）</label><input id="mult" type="number" value="3" min="1.2" step="0.1"></div>
+    <div class="ctl"><label>LP% しきい値（burn/locker合算）</label><input id="lpmin" type="number" value="80" min="0" max="100"></div>
     <div class="ctl"><label>Trending 種（上限）</label><input id="seedLimit" type="number" value="20" min="5" max="100"></div>
-    <div class="ctl"><label>開始（任意, UNIX秒 or 空）</label><input id="startTs" placeholder="例: 1754006400"></div>
-    <div class="ctl"><label>終了（任意, UNIX秒 or 空）</label><input id="endTs" placeholder="例: 1758067200"></div>
     <div class="ctl"><label>厳密モード</label><div><input id="strict" type="checkbox" checked> <span class="pill">days×mult と LP% フィルタを適用</span></div></div>
   </div>
-  <div class="row" style="margin-top:10px">
-    <div class="ctl" style="flex:1"><label>（任意）CORS プロキシ</label><input id="cors" placeholder="例: https://cors.isomorphic-git.org/"></div>
-    <div class="ctl"><label>&nbsp;</label><button class="primary" id="runBtn">スキャン実行</button></div>
-    <div class="ctl"><label>&nbsp;</label><button class="ghost" id="csvBtn" disabled>CSVダウンロード</button></div>
+
+  <div class="row" style="margin-top:8px">
+    <div class="ctl">
+      <label>抽出期間（開始, カレンダー）</label>
+      <input id="dateStart" type="date" />
+    </div>
+    <div class="ctl">
+      <label>抽出期間（終了, カレンダー）</label>
+      <input id="dateEnd" type="date" />
+    </div>
+    <div class="ctl" style="flex:1">
+      <label>（任意）CORS プロキシ</label>
+      <input id="cors" placeholder="例: https://cors.isomorphic-git.org/">
+    </div>
+    <div class="ctl"><label>&nbsp;</label><button class="primary" id="runBtn" type="button">スキャン実行</button></div>
+    <div class="ctl"><label>&nbsp;</label><button class="ghost" id="csvBtn" type="button" disabled>CSVダウンロード</button></div>
   </div>
+
+  <details>
+    <summary style="cursor:pointer;color:#cbd5e1">詳細設定（UNIX秒による期間指定・既定は空）</summary>
+    <div class="row" style="margin-top:6px">
+      <div class="ctl"><label>開始（UNIX秒）</label><input id="startTs" placeholder="例: 1754006400"></div>
+      <div class="ctl"><label>終了（UNIX秒）</label><input id="endTs" placeholder="例: 1758067200"></div>
+    </div>
+  </details>
 </header>
 
 <main>
-  <div id="params" class="log" style="margin-bottom:12px">準備中…</div>
+  <div id="params" class="log" style="margin-bottom:10px">待機中：上のパラメータをセットして「スキャン実行」を押してください。</div>
   <div id="progress" class="pill">idle</div>
   <div style="height:10px"></div>
   <div class="log" id="notes"></div>
@@ -64,141 +86,106 @@
 </main>
 
 <script>
-/** =========================
- *  UTILITIES
- *  ========================= */
-const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
-const fmtPct = (x)=> (x===null||x===undefined||Number.isNaN(+x)) ? '' : (x>0?'+':'')+x.toFixed(2)+'%';
-const fmtNum = (x, d=2)=> (x===null||x===undefined||Number.isNaN(+x)) ? '' : (+x).toFixed(d);
-const ts2 = (t)=> new Date(t*1000).toLocaleString();
+/* ========== UTILITIES ========== */
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+const by = (id)=>document.getElementById(id);
 const enc = encodeURIComponent;
-const by = (id)=> document.getElementById(id);
+const fmtNum = (x, d=2)=> (x==null||Number.isNaN(+x))?'':(+x).toFixed(d);
+const ts2 = (t)=> new Date(t*1000).toLocaleString();
 
-/** Known locker/burn patterns for LP detection */
-const KNOWN_BURN_ADDRS = new Set([
-  '0x0000000000000000000000000000000000000000',
-  '0x000000000000000000000000000000000000dead',
-  '0x000000000000000000000000000000000000dEaD'
-]);
-const LOCKER_HINTS = ['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','flocki','trustswap','cryptex','pinksale','deeplock'];
-// ethplorer free keys rotation（必要に応じて追記可）
-const ETHPLORER_KEYS = ['freekey'];
+/* iOS Safariでの押下不可対策：type="button"を明示済。重なり回避のためheaderからstickyを除去済。 */
 
 function withCors(url, corsBase){
   if(!corsBase) return url;
   return corsBase.replace(/\/$/,'') + '/' + url;
 }
-
-/** Fetch with backoff; 429/5xx対応 */
 async function getJson(url, {corsBase='', tries=3, pause=800}={}){
-  let lastErr;
+  let err;
   for(let i=0;i<tries;i++){
     try{
-      const res = await fetch(withCors(url, corsBase));
-      if(!res.ok) throw new Error('HTTP '+res.status);
-      return await res.json();
-    }catch(e){
-      lastErr = e;
-      await sleep(pause*(i+1));
-    }
+      const r = await fetch(withCors(url,corsBase));
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }catch(e){ err=e; await sleep(pause*(i+1)); }
   }
-  throw lastErr;
+  throw err;
 }
 
-/** CSV helper */
+/* CSV */
 function toCSV(rows){
-  const esc = (v)=> {
-    if(v==null) return '';
-    const s = String(v);
-    if(/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-    return s;
-  };
+  const esc = (v)=> v==null?'':/["\n,]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);
   const header = Object.keys(rows[0]||{});
-  const lines = [header.map(esc).join(',')];
-  for(const r of rows){ lines.push(header.map(k=>esc(r[k])).join(',')); }
-  return lines.join('\n');
+  const out = [header.map(esc).join(',')];
+  for(const r of rows){ out.push(header.map(k=>esc(r[k])).join(',')); }
+  return out.join('\n');
 }
-function dl(filename, text){
+function dl(name, text){
   const blob = new Blob([text], {type:'text/csv'});
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
   URL.revokeObjectURL(a.href);
 }
 
-/** =========================
- *  TRENDING SEEDS
- *  ========================= */
+/* カレンダー値→UNIX（ローカル日付基準） */
+function dateToStartUnix(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr+'T00:00:00');
+  return Math.floor(d.getTime()/1000);
+}
+function dateToEndUnix(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr+'T23:59:59');
+  return Math.floor(d.getTime()/1000);
+}
+
+/* ========== TRENDING ========== */
 async function getTrendingSeeds({limit=20, corsBase}){
-  // 1) GeckoTerminal trending pools（優先）
+  // GeckoTerminal trending（優先）
   try{
-    // 非公開変更に備えフォールバックあり
-    // 代表例: https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1
     const url = `https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`;
     const j = await getJson(url, {corsBase, tries:2, pause:800});
     const arr = (j?.data||[]).slice(0,limit);
-    const pools = arr.map(x => ({ 
+    const pools = arr.map(x=>({
       poolAddress: x?.attributes?.address,
-      // 補助: base/quote symbols
       base: x?.relationships?.base_token?.data?.id?.split('_').slice(2).join('_') || '',
       quote: x?.relationships?.quote_token?.data?.id?.split('_').slice(2).join('_') || '',
-      name: (x?.attributes?.name)||''
+      name: x?.attributes?.name || ''
     })).filter(x=>x.poolAddress);
-    if(pools.length){
-      return {seeds:pools, source:'GeckoTerminal'};
-    }
-  }catch(e){
-    // ignore → DexScreenerへ
-  }
-  // 2) DexScreener trending（フォールバック）
-  const url2 = `https://api.dexscreener.com/latest/dex/trending?limit=${limit}`;
-  const j2 = await getJson(url2, {corsBase, tries:3, pause:1000});
-  const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum' || p.chainId==='eth') )
-    .slice(0,limit)
-    .map(p=>({
-      poolAddress: p.pairAddress,
-      base: p.baseToken?.symbol||'',
-      quote: p.quoteToken?.symbol||'',
-      name: p.baseToken?.symbol && p.quoteToken?.symbol ? `${p.baseToken.symbol}/${p.quoteToken.symbol}` : (p.symbol||'')
-    }));
+    if(pools.length) return {seeds:pools, source:'GeckoTerminal'};
+  }catch(e){}
+  // DexScreener trending（フォールバック）
+  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {corsBase, tries:3, pause:1000});
+  const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum'||p.chainId==='eth') ).slice(0,limit).map(p=>({
+    poolAddress: p.pairAddress, base:p.baseToken?.symbol||'', quote:p.quoteToken?.symbol||'',
+    name: p.baseToken?.symbol && p.quoteToken?.symbol ? `${p.baseToken.symbol}/${p.quoteToken.symbol}` : (p.symbol||'')
+  }));
   return {seeds, source:'DexScreener'};
 }
 
-/** =========================
- *  OHLCV & SPIKE (GeckoTerminal 日足)
- *  ========================= */
-async function getDailyOHLCV_eth_pool(poolAddress, {limit=60, corsBase}={}){
-  // https://api.geckoterminal.com/api/v2/networks/eth/pools/:pool/ohlcv/day?aggregate=1&limit=60
+/* ========== OHLCV & 14日スパイク ========== */
+async function getDailyOHLCV_eth_pool(poolAddress, {limit=90, corsBase}={}){
   const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`;
   const j = await getJson(url, {corsBase, tries:3, pause:1200});
-  // 返却形式: data.candles = [[ts,open,high,low,close,volume], ...]
   const arr = j?.data?.attributes?.candles || [];
-  return arr.map(x => ({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
+  return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
 }
-
-/** 直近days内のピーク終値と、その直前daysの最安終値で倍率を算出 */
 function computeSpike14(ohlc, days=14){
   if(!ohlc?.length) return null;
-  // 末尾（最新）からdays本を対象
   const sorted = [...ohlc].sort((a,b)=>a.ts-b.ts);
   const lastN = sorted.slice(-days);
-  if(lastN.length<Math.max(5, Math.floor(days*0.6))) return null;
+  if(lastN.length < Math.max(5, Math.floor(days*0.6))) return null;
 
-  // 1) 直近daysのピーク（終値）を探す
-  let peakIdx = -1, peakClose = -Infinity;
-  lastN.forEach((c,i)=>{ if(c.c>peakClose){ peakClose=c.c; peakIdx=i; }});
-  const peak = lastN[peakIdx];
-  const peakTs = peak.ts;
+  let peakIdx=-1, peakClose=-Infinity;
+  lastN.forEach((c,i)=>{ if(c.c>peakClose){peakClose=c.c; peakIdx=i;}});
+  const peak = lastN[peakIdx], peakTs = peak.ts;
 
-  // 2) その直前daysの範囲で最安終値
-  const globalIdx = sorted.findIndex(c => c.ts===peakTs);
-  const preWin = sorted.slice(Math.max(0, globalIdx-days), globalIdx);
+  const globIdx = sorted.findIndex(c=>c.ts===peakTs);
+  const preWin = sorted.slice(Math.max(0,globIdx-days), globIdx);
   if(!preWin.length) return null;
-  let minClose = Infinity, minCandle=null;
-  preWin.forEach(c=>{ if(c.c<minClose){ minClose=c.c; minCandle=c; }});
+  let minClose=Infinity, minCandle=null;
+  preWin.forEach(c=>{ if(c.c<minClose){minClose=c.c; minCandle=c;} });
 
-  const multiple = (minClose>0)? (peakClose/minClose) : null;
+  const multiple = (minClose>0)? peakClose/minClose : null;
   return {
     peak_ts: peakTs, peak_close: peakClose,
     pre14_min_ts: minCandle?.ts||null, pre14_min_close: minClose||null,
@@ -206,9 +193,15 @@ function computeSpike14(ohlc, days=14){
   };
 }
 
-/** =========================
- *  LP LOCK ESTIMATION (Ethplorer)
- *  ========================= */
+/* ========== LP 推定（Ethplorer） ========== */
+const KNOWN_BURN_ADDRS = new Set([
+  '0x0000000000000000000000000000000000000000',
+  '0x000000000000000000000000000000000000dead',
+  '0x000000000000000000000000000000000000dEaD'
+]);
+const LOCKER_HINTS = ['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
+const ETHPLORER_KEYS = ['freekey'];
+
 async function getTopHolders_lp(lpAddress, {corsBase, apiKey}={}){
   const key = apiKey || ETHPLORER_KEYS[0];
   const url = `https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=${key}&limit=50`;
@@ -219,107 +212,102 @@ function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
   let burnPct=0, lockPct=0, topLocker='';
   for(const h of hs){
-    const addr = (h?.address||'').toLowerCase();
-    const name = (h?.owner?.name || h?.address || '').toLowerCase();
-    const share = +h?.share || 0;
-    if(KNOWN_BURN_ADDRS.has(addr)){
-      burnPct += share;
-    }else if(LOCKER_HINTS.some(k=> name.includes(k))){
-      lockPct += share;
-      if(!topLocker) topLocker = h?.owner?.name || h?.address;
-    }
+    const addr=(h?.address||'').toLowerCase();
+    const name=(h?.owner?.name||h?.address||'').toLowerCase();
+    const share=+h?.share||0;
+    if(KNOWN_BURN_ADDRS.has(addr)){ burnPct+=share; }
+    else if(LOCKER_HINTS.some(k=>name.includes(k))){ lockPct+=share; if(!topLocker) topLocker=h?.owner?.name||h?.address; }
   }
   let lp_type='unknown';
   if(burnPct>=1) lp_type='burn';
   else if(lockPct>=1) lp_type='lp';
-
-  const tokenUrl = (addr)=> `https://ethplorer.io/address/${addr}`;
-  let burnProof='', lockProof='';
-  const bh = hs.find(h=> KNOWN_BURN_ADDRS.has((h.address||'').toLowerCase()));
-  if(bh) burnProof = tokenUrl(bh.address);
-  const lh = hs.find(h=> LOCKER_HINTS.some(k=> ((h.owner?.name||h.address||'').toLowerCase().includes(k)) ));
-  if(lh) lockProof = tokenUrl(lh.address);
-
-  return { lp_pct_est: +(burnPct+lockPct).toFixed(2), lp_type, locker_name: topLocker||'', burn_proof_url: burnProof, locker_proof_url: lockProof };
+  const tokenUrl=(a)=>`https://ethplorer.io/address/${a}`;
+  const bh=hs.find(h=> KNOWN_BURN_ADDRS.has((h.address||'').toLowerCase()) );
+  const lh=hs.find(h=> LOCKER_HINTS.some(k=> ((h.owner?.name||h.address||'').toLowerCase().includes(k)) ) );
+  return {
+    lp_pct_est:+(burnPct+lockPct).toFixed(2),
+    lp_type, locker_name: topLocker||'',
+    burn_proof_url: bh?tokenUrl(bh.address):'',
+    locker_proof_url: lh?tokenUrl(lh.address):''
+  };
 }
 
-/** =========================
- *  MAIN SCAN
- *  ========================= */
-let LAST_ROWS = [];
+/* ========== MAIN ========== */
+let LAST_ROWS=[];
 
 async function run(){
   const days = +by('days').value || 14;
   const mult = +by('mult').value || 3;
   const lpmin = +by('lpmin').value || 80;
   const seedLimit = +by('seedLimit').value || 20;
-  const startTs = by('startTs').value ? +by('startTs').value : null;
-  const endTs = by('endTs').value ? +by('endTs').value : null;
-  const strict = by('strict').checked;
   const corsBase = by('cors').value.trim();
+  const strict = by('strict').checked;
+
+  /* カレンダー優先 → 明示UNIXがあれば上書き */
+  let startTs = dateToStartUnix(by('dateStart').value);
+  let endTs = dateToEndUnix(by('dateEnd').value);
+  if(by('startTs').value) startTs = +by('startTs').value;
+  if(by('endTs').value) endTs = +by('endTs').value;
 
   by('csvBtn').disabled = true;
-  by('wrapTable').innerHTML = '';
-  by('notes').textContent = '';
-  by('progress').textContent = 'preparing…';
+  by('wrapTable').innerHTML='';
+  by('notes').textContent='';
+  by('progress').textContent='preparing…';
 
-  // 1) seeds
+  // 1) Trending seeds
   const {seeds, source} = await getTrendingSeeds({limit:seedLimit, corsBase});
-  const uniqMap = new Map();
-  for(const s of seeds){ uniqMap.set(s.poolAddress.toLowerCase(), s); }
-  const seedArr = [...uniqMap.values()];
-  const paramLine = [
-    `Params: days=${days}, mult=${mult}, LP>=${lpmin}%, start=${startTs||'-'}, end=${endTs||'-'}`,
-    `${source} trending seeds: ${seeds.length}`,
-    `Total unique seeds: ${seedArr.length}`
+  const uniq = new Map();
+  for(const s of seeds){ uniq.set(s.poolAddress.toLowerCase(), s); }
+  const seedArr = [...uniq.values()];
+
+  by('params').textContent = [
+    `Params: days=${days}, mult=${mult}, LP>=${lpmin}%`,
+    `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`,
+    `${source} trending seeds: ${seedArr.length}`
   ].join('\n');
-  by('params').textContent = paramLine;
 
-  const rows = [];
-  let i=0;
+  const rows=[];
+  let idx=0;
   for(const s of seedArr){
-    i++;
-    by('progress').textContent = `fetching ${i}/${seedArr.length}  (${s.name||''})`;
-    await sleep(400); // 軽いジッタ
+    idx++;
+    by('progress').textContent = `fetching ${idx}/${seedArr.length}  (${s.name||''})`;
+    await sleep(300);
 
-    // 2) OHLCV (日足)
-    let candles = [];
+    // 2) OHLCV
+    let candles=[];
     try{
-      candles = await getDailyOHLCV_eth_pool(s.poolAddress, {limit:80, corsBase});
-    }catch(e){
-      // 失敗ならスキップ
-      continue;
-    }
-    // 期間フィルタ（任意）
-    if(startTs || endTs){
+      candles = await getDailyOHLCV_eth_pool(s.poolAddress, {limit:120, corsBase});
+    }catch(e){ continue; }
+
+    // 期間フィルタ
+    if(startTs||endTs){
       candles = candles.filter(c=>{
         if(startTs && c.ts < startTs) return false;
         if(endTs && c.ts > endTs) return false;
         return true;
       });
     }
-    // 3) spike
+
+    // 3) 14d spike
     const spike = computeSpike14(candles, days);
 
-    // 4) LP holders
+    // 4) LP
     let lpInfo = {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
     try{
       const hs = await getTopHolders_lp(s.poolAddress, {corsBase});
       lpInfo = estimateLP(hs);
-    }catch(e){ /* keep default */ }
+    }catch(e){}
 
-    // 5) しきい値（厳密モード）判定
-    let passes = true, reason = [];
+    // 5) フィルタ（厳密モード時）
     const multV = spike?.multiple_14d_close || null;
+    let passes = true, reason=[];
     if(strict){
-      if(!(multV && multV >= mult)){ passes=false; reason.push('mult'); }
-      if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est >= lpmin)){ passes=false; reason.push('lp'); }
+      if(!(multV && multV>=mult)){ passes=false; reason.push('mult'); }
+      if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)){ passes=false; reason.push('lp'); }
     }
 
-    // 6) 参考値（DexScreenerトレンド由来のh1/h6/h24はこの版では空欄のままでもOK）
-    //    ※DexScreener詳細を追加で引くことも可能。軽量性重視で今回は省略。
-    const row = {
-      token_pool: s.name || (s.base && s.quote ? `${s.base}/${s.quote}` : ''),
+    rows.push({
+      token_pool: s.name || (s.base&&s.quote?`${s.base}/${s.quote}`:''),
       address: s.poolAddress,
       peak_ts: spike?.peak_ts || '',
       peak_close: spike?.peak_close || '',
@@ -333,43 +321,37 @@ async function run(){
       end_ts: endTs||'',
       data_mode: strict ? 'strict' : 'gecko-only',
       dex_url: `https://dexscreener.com/ethereum/${s.poolAddress}`,
-      gecko_ohlcv_url: `https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=80`,
+      gecko_ohlcv_url: `https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=120`,
       ethplorer_token_url: `https://ethplorer.io/address/${s.poolAddress}`,
       burn_proof_url: lpInfo.burn_proof_url || '',
       locker_proof_url: lpInfo.locker_proof_url || '',
-      __passes: passes,
-      __reason: reason.join(',')
-    };
-    rows.push(row);
+      __passes: passes, __reason: reason.join(',')
+    });
   }
 
-  // テーブル描画
-  renderTable(rows, {strict, mult, lpmin});
+  renderTable(rows, {strict});
   LAST_ROWS = rows;
   by('csvBtn').disabled = rows.length===0;
-  by('progress').textContent = `完了: ${rows.length} hits（showing ${rows.length}）`;
-  by('notes').textContent = strict
-    ? '厳密モード：倍率とLP%のしきい値を満たす行だけ表示。証憑URLで検証できます。'
-    : '早見モード：トレンド種の素通し。倍率/LP%は計算・付与のみ（表のフィルタは未適用）。';
+  by('progress').textContent = `完了: ${ (strict? rows.filter(r=>r.__passes).length : rows.length) } hits（showing ${ (strict? rows.filter(r=>r.__passes).length : rows.length) }）`;
+  by('notes').textContent =
+    (strict? '厳密モード：倍率とLP%のしきい値を満たす行のみ表示。' : '早見モード：トレンド種を素通しで表示。') +
+    ' 抽出期間は上のカレンダーで指定できます（その範囲内で14日スパイクを検出）。';
 }
 
-function renderTable(rows, {strict, mult, lpmin}){
-  // 表示用フィルタ
-  const show = strict ? rows.filter(r=> r.__passes ) : rows;
-  // HTML
+function renderTable(rows,{strict}){
+  const show = strict ? rows.filter(r=>r.__passes) : rows;
   let html = `<table><thead>
     <tr>
       <th>#</th><th>Token/Pool</th><th>Address</th>
       <th>multiple(14d)</th><th>peak_ts</th><th>pre14_min_ts</th>
-      <th>LP% (est)</th><th>LP type</th><th>locker</th>
-      <th>Links</th>
+      <th>LP% (est)</th><th>LP type</th><th>locker</th><th>Links</th>
     </tr></thead><tbody>`;
-  show.forEach((r,idx)=>{
+  show.forEach((r,i)=>{
     const m = +r.multiple_14d_close || 0;
-    const cls = m>=3 ? 'good' : (m>=2 ? 'warn':'');
+    const cls = m>=3?'good':(m>=2?'warn':'');
     const lpcls = (r.lp_pct_est>=80)?'good':(r.lp_pct_est>=50?'warn':'bad');
     html += `<tr>
-      <td class="num">${idx+1}</td>
+      <td class="num">${i+1}</td>
       <td>${r.token_pool||''}</td>
       <td><a href="${r.dex_url}" target="_blank">${r.address.slice(0,6)}…${r.address.slice(-4)}</a></td>
       <td class="num ${cls}">${r.multiple_14d_close||''}</td>
@@ -389,20 +371,15 @@ function renderTable(rows, {strict, mult, lpmin}){
   by('wrapTable').innerHTML = html;
 }
 
-/** =========================
- *  UI BINDINGS
- *  ========================= */
+/* UI */
 by('runBtn').addEventListener('click', run);
 by('csvBtn').addEventListener('click', ()=>{
   if(!LAST_ROWS.length) return;
   const now = new Date();
   const fname = `meme_trending_eth_${now.getTime()}.csv`;
-  const out = LAST_ROWS.map(({__passes,__reason,...rest})=>rest); // 内部列はCSVから除去
+  const out = LAST_ROWS.map(({__passes,__reason,...rest})=>rest);
   dl(fname, toCSV(out));
 });
-
-// 初期表示
-by('params').textContent = '待機中：上のパラメータをセットして「スキャン実行」を押してください。';
 </script>
 </body>
 </html>
