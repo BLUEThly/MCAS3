@@ -64,7 +64,7 @@
     </div>
     <div class="ctl" style="flex:1">
       <label>（任意）CORS プロキシ</label>
-      <input id="cors" placeholder="例: https://cors.isomorphic-git.org/">
+      <input id="cors" placeholder="例: https://cors.isomorphic-git.org/ または https://xxx.workers.dev/?url=">
     </div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -114,9 +114,30 @@ function log(msg, isErr=false){
   el.scrollTop = el.scrollHeight;
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
-function withCors(url, corsBase){ return corsBase ? corsBase.replace(/\/$/,'') + '/' + url : url; }
 
-/* Abortable fetch with timeout & retries */
+/* CORS 自動判別:
+   - base に '{url}' が含まれる → {url} を encodeURIComponent(url) で置換
+   - '?url='（または末尾が '?' で 'url=' を含む） → 末尾に encodeURIComponent(url) を連結
+   - それ以外 → 末尾の '/' を1本に整えて、非エンコードで連結（isomorphic-git系）
+*/
+function withCors(url, corsBase){
+  if(!corsBase) return url;
+  const b = corsBase.trim();
+  if(/\{url\}/i.test(b)){
+    return b.replace(/\{url\}/ig, encodeURIComponent(url));
+  }
+  // 代表: https://xxx.workers.dev/?url=
+  if(/[\?&]url=$/i.test(b) || /\?$/.test(b) && /url=/.test(b)){
+    return b + encodeURIComponent(url);
+  }
+  // 万一「…/?url=」の最後に '/' が入っていた場合に備えた補正
+  if(/[\?&]url=\/$/.test(b)){
+    return b.replace(/\/$/, '') + encodeURIComponent(url);
+  }
+  // prefix型（isomorphic-git 等）
+  return b.replace(/\/+$/,'') + '/' + url;
+}
+
 async function getJson(url, {corsBase='', tries=3, pause=800, timeout=10000, label=''}={}){
   let last;
   for(let i=0;i<tries;i++){
@@ -217,7 +238,7 @@ const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock
 const ETHPLORER_KEYS=['freekey'];
 async function getTopHolders_lp(lpAddress,{corsBase,apiKey}={}){
   const url=`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=${apiKey||ETHPLORER_KEYS[0]}&limit=50`;
-  const j = await getJson(url,{corsBase,tries:3,pause:1500,timeout:12000,label:`TopHolders ${lpAddress.slice(0,6)}…`});
+  const j = await getJson(url,{corsBase,tries:3,pause=1500,timeout=12000,label:`TopHolders ${lpAddress.slice(0,6)}…`});
   return j?.holders||[];
 }
 function estimateLP(hs=[]){
