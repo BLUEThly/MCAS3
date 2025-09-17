@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間</title>
+<title>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間＋進捗/ログ</title>
 <style>
   :root{
     --bg:#0f172a; --panel:#0b1220; --text:#e5e7eb; --muted:#9ca3af;
     --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; --link:#93c5fd;
-    --chip:#1f2937; --table:#0b1220; --border:#1f2937;
+    --chip:#1f2937; --table:#0b1220; --border:#1f2937; --btn:#1d4ed8;
   }
   html,body{background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";margin:0}
   header{padding:18px 14px;border-bottom:1px solid var(--border);background:var(--panel)}
@@ -19,11 +19,13 @@
   input,select,button{background:#0f172a;border:1px solid #293145;color:var(--text);padding:8px 10px;border-radius:8px;font-size:14px}
   input[type="checkbox"]{width:auto}
   button{cursor:pointer}
-  button.primary{background:#1d4ed8;border-color:#1d4ed8}
+  button.primary{background:var(--btn);border-color:var(--btn)}
   button.ghost{background:var(--panel)}
+  button.red{background:#7f1d1d;border-color:#7f1d1d}
   .pill{background:var(--chip);padding:6px 10px;border-radius:999px;color:#cbd5e1;font-size:12px}
   main{padding:16px}
   .log{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .log .err{color:var(--bad)}
   table{width:100%;border-collapse:separate;border-spacing:0 6px}
   thead th{font-size:12px;color:#9ca3af;text-align:left;padding:6px 8px}
   tbody tr{background:var(--table)}
@@ -34,6 +36,8 @@
   .num{font-variant-numeric:tabular-nums}
   .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
   footer{opacity:.7;margin-top:16px;font-size:12px}
+  .bar{height:8px;background:#0a1a38;border:1px solid #1f2b45;border-radius:999px;overflow:hidden}
+  .bar > div{height:100%;width:0;background:#2563eb;transition:width .2s}
   details{margin-top:6px}
 </style>
 </head>
@@ -62,8 +66,14 @@
       <label>（任意）CORS プロキシ</label>
       <input id="cors" placeholder="例: https://cors.isomorphic-git.org/">
     </div>
-    <div class="ctl"><label>&nbsp;</label><button class="primary" id="runBtn" type="button">スキャン実行</button></div>
-    <div class="ctl"><label>&nbsp;</label><button class="ghost" id="csvBtn" type="button" disabled>CSVダウンロード</button></div>
+    <div class="ctl">
+      <label>&nbsp;</label>
+      <div style="display:flex;gap:8px">
+        <button class="primary" id="runBtn" type="button">スキャン実行</button>
+        <button class="red" id="cancelBtn" type="button" disabled>キャンセル</button>
+        <button class="ghost" id="csvBtn" type="button" disabled>CSV</button>
+      </div>
+    </div>
   </div>
 
   <details>
@@ -77,43 +87,61 @@
 
 <main>
   <div id="params" class="log" style="margin-bottom:10px">待機中：上のパラメータをセットして「スキャン実行」を押してください。</div>
-  <div id="progress" class="pill">idle</div>
+
+  <div class="bar"><div id="pbar"></div></div>
+  <div style="height:8px"></div>
+  <div class="pill" id="progress">idle</div>
+
   <div style="height:10px"></div>
   <div class="log" id="notes"></div>
   <div style="height:14px"></div>
   <div id="wrapTable"></div>
+
   <footer>© 2025 — Ethereum only｜データ: GeckoTerminal（日足OHLCV）/ DexScreener（トレンド補助）/ Ethplorer（TopHolders）</footer>
 </main>
 
 <script>
-/* ========== UTILITIES ========== */
-const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+/* ===== Utilities ===== */
 const by = (id)=>document.getElementById(id);
-const enc = encodeURIComponent;
-const fmtNum = (x, d=2)=> (x==null||Number.isNaN(+x))?'':(+x).toFixed(d);
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 const ts2 = (t)=> new Date(t*1000).toLocaleString();
+const fmtNum = (x,d=2)=> (x==null||Number.isNaN(+x))?'':(+x).toFixed(d);
 
-/* iOS Safariでの押下不可対策：type="button"を明示済。重なり回避のためheaderからstickyを除去済。 */
-
-function withCors(url, corsBase){
-  if(!corsBase) return url;
-  return corsBase.replace(/\/$/,'') + '/' + url;
+function log(msg, isErr=false){
+  const el = by('notes');
+  const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.innerHTML += (isErr? `<div class="err">${line}</div>` : `<div>${line}</div>`);
+  el.scrollTop = el.scrollHeight;
 }
-async function getJson(url, {corsBase='', tries=3, pause=800}={}){
-  let err;
+function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
+function withCors(url, corsBase){ return corsBase ? corsBase.replace(/\/$/,'') + '/' + url : url; }
+
+/* Abortable fetch with timeout & retries */
+async function getJson(url, {corsBase='', tries=3, pause=800, timeout=10000, label=''}={}){
+  let last;
   for(let i=0;i<tries;i++){
+    const controller = new AbortController();
+    const tid = setTimeout(()=>controller.abort('timeout'), timeout);
     try{
-      const r = await fetch(withCors(url,corsBase));
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return await r.json();
-    }catch(e){ err=e; await sleep(pause*(i+1)); }
+      const u = withCors(url, corsBase);
+      if(label) log(`GET ${label} (${i+1}/${tries})`);
+      const res = await fetch(u, {signal: controller.signal});
+      clearTimeout(tid);
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }catch(e){
+      clearTimeout(tid);
+      last = e;
+      log(`…retry due to ${e.message||e}`, true);
+      await sleep(pause*(i+1));
+    }
   }
-  throw err;
+  throw last;
 }
 
-/* CSV */
+/* CSV helpers */
 function toCSV(rows){
-  const esc = (v)=> v==null?'':/["\n,]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);
+  const esc = (v)=> v==null ? '' : /[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);
   const header = Object.keys(rows[0]||{});
   const out = [header.map(esc).join(',')];
   for(const r of rows){ out.push(header.map(k=>esc(r[k])).join(',')); }
@@ -126,24 +154,16 @@ function dl(name, text){
   URL.revokeObjectURL(a.href);
 }
 
-/* カレンダー値→UNIX（ローカル日付基準） */
-function dateToStartUnix(dateStr){
-  if(!dateStr) return null;
-  const d = new Date(dateStr+'T00:00:00');
-  return Math.floor(d.getTime()/1000);
-}
-function dateToEndUnix(dateStr){
-  if(!dateStr) return null;
-  const d = new Date(dateStr+'T23:59:59');
-  return Math.floor(d.getTime()/1000);
-}
+/* Dates -> UNIX (local) */
+function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return Math.floor(d.getTime()/1000); }
+function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000); }
 
-/* ========== TRENDING ========== */
+/* ===== Trending ===== */
 async function getTrendingSeeds({limit=20, corsBase}){
-  // GeckoTerminal trending（優先）
+  // GeckoTerminal
   try{
     const url = `https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`;
-    const j = await getJson(url, {corsBase, tries:2, pause:800});
+    const j = await getJson(url, {corsBase, tries:2, pause:800, timeout:10000, label:'Gecko trending'});
     const arr = (j?.data||[]).slice(0,limit);
     const pools = arr.map(x=>({
       poolAddress: x?.attributes?.address,
@@ -151,191 +171,157 @@ async function getTrendingSeeds({limit=20, corsBase}){
       quote: x?.relationships?.quote_token?.data?.id?.split('_').slice(2).join('_') || '',
       name: x?.attributes?.name || ''
     })).filter(x=>x.poolAddress);
-    if(pools.length) return {seeds:pools, source:'GeckoTerminal'};
-  }catch(e){}
-  // DexScreener trending（フォールバック）
-  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {corsBase, tries:3, pause:1000});
+    if(pools.length){ log(`Gecko trending: ${pools.length} seeds`); return {seeds:pools, source:'GeckoTerminal'}; }
+  }catch(e){ log(`Gecko trending failed: ${e.message||e}`, true); }
+  // DexScreener
+  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {corsBase, tries:3, pause:1000, timeout:10000, label:'DexScreener trending'});
   const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum'||p.chainId==='eth') ).slice(0,limit).map(p=>({
-    poolAddress: p.pairAddress, base:p.baseToken?.symbol||'', quote:p.quoteToken?.symbol||'',
+    poolAddress: p.pairAddress,
+    base: p.baseToken?.symbol||'',
+    quote: p.quoteToken?.symbol||'',
     name: p.baseToken?.symbol && p.quoteToken?.symbol ? `${p.baseToken.symbol}/${p.quoteToken.symbol}` : (p.symbol||'')
   }));
+  log(`DexScreener trending: ${seeds.length} seeds`);
   return {seeds, source:'DexScreener'};
 }
 
-/* ========== OHLCV & 14日スパイク ========== */
-async function getDailyOHLCV_eth_pool(poolAddress, {limit=90, corsBase}={}){
+/* ===== OHLCV & Spike ===== */
+async function getDailyOHLCV_eth_pool(poolAddress, {limit=120, corsBase}={}){
   const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`;
-  const j = await getJson(url, {corsBase, tries:3, pause:1200});
-  const arr = j?.data?.attributes?.candles || [];
-  return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
+  return (await getJson(url, {corsBase, tries:3, pause:1200, timeout:12000, label:`OHLCV ${poolAddress.slice(0,6)}…`}))?.data?.attributes?.candles?.map(
+    x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]})
+  ) || [];
 }
 function computeSpike14(ohlc, days=14){
   if(!ohlc?.length) return null;
-  const sorted = [...ohlc].sort((a,b)=>a.ts-b.ts);
-  const lastN = sorted.slice(-days);
-  if(lastN.length < Math.max(5, Math.floor(days*0.6))) return null;
-
-  let peakIdx=-1, peakClose=-Infinity;
+  const sorted=[...ohlc].sort((a,b)=>a.ts-b.ts);
+  const lastN=sorted.slice(-days);
+  if(lastN.length<Math.max(5,Math.floor(days*0.6))) return null;
+  let peakIdx=-1,peakClose=-Infinity;
   lastN.forEach((c,i)=>{ if(c.c>peakClose){peakClose=c.c; peakIdx=i;}});
-  const peak = lastN[peakIdx], peakTs = peak.ts;
-
-  const globIdx = sorted.findIndex(c=>c.ts===peakTs);
-  const preWin = sorted.slice(Math.max(0,globIdx-days), globIdx);
+  const peak=lastN[peakIdx], peakTs=peak.ts;
+  const gi=sorted.findIndex(c=>c.ts===peakTs);
+  const preWin=sorted.slice(Math.max(0,gi-days), gi);
   if(!preWin.length) return null;
-  let minClose=Infinity, minCandle=null;
-  preWin.forEach(c=>{ if(c.c<minClose){minClose=c.c; minCandle=c;} });
-
-  const multiple = (minClose>0)? peakClose/minClose : null;
+  let minClose=Infinity, minC=null; preWin.forEach(c=>{ if(c.c<minClose){minClose=c.c; minC=c;} });
   return {
     peak_ts: peakTs, peak_close: peakClose,
-    pre14_min_ts: minCandle?.ts||null, pre14_min_close: minClose||null,
-    multiple_14d_close: multiple
+    pre14_min_ts: minC?.ts||null, pre14_min_close: minClose||null,
+    multiple_14d_close: (minClose>0)? peakClose/minClose : null
   };
 }
 
-/* ========== LP 推定（Ethplorer） ========== */
-const KNOWN_BURN_ADDRS = new Set([
-  '0x0000000000000000000000000000000000000000',
-  '0x000000000000000000000000000000000000dead',
-  '0x000000000000000000000000000000000000dEaD'
-]);
-const LOCKER_HINTS = ['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
-const ETHPLORER_KEYS = ['freekey'];
-
-async function getTopHolders_lp(lpAddress, {corsBase, apiKey}={}){
-  const key = apiKey || ETHPLORER_KEYS[0];
-  const url = `https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=${key}&limit=50`;
-  const j = await getJson(url, {corsBase, tries:3, pause:1500});
-  return j?.holders || [];
+/* ===== LP holders (Ethplorer) ===== */
+const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
+const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
+const ETHPLORER_KEYS=['freekey'];
+async function getTopHolders_lp(lpAddress,{corsBase,apiKey}={}){
+  const url=`https://api.ethplorer.io/getTopTokenHolders/${lpAddress}?apiKey=${apiKey||ETHPLORER_KEYS[0]}&limit=50`;
+  const j = await getJson(url,{corsBase,tries:3,pause:1500,timeout:12000,label:`TopHolders ${lpAddress.slice(0,6)}…`});
+  return j?.holders||[];
 }
 function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
-  let burnPct=0, lockPct=0, topLocker='';
+  let burnPct=0,lockPct=0,topLocker='';
   for(const h of hs){
-    const addr=(h?.address||'').toLowerCase();
-    const name=(h?.owner?.name||h?.address||'').toLowerCase();
-    const share=+h?.share||0;
-    if(KNOWN_BURN_ADDRS.has(addr)){ burnPct+=share; }
+    const addr=(h?.address||'').toLowerCase(); const name=(h?.owner?.name||h?.address||'').toLowerCase(); const share=+h?.share||0;
+    if(KNOWN_BURN_ADDRS.has(addr)) burnPct+=share;
     else if(LOCKER_HINTS.some(k=>name.includes(k))){ lockPct+=share; if(!topLocker) topLocker=h?.owner?.name||h?.address; }
   }
-  let lp_type='unknown';
-  if(burnPct>=1) lp_type='burn';
-  else if(lockPct>=1) lp_type='lp';
-  const tokenUrl=(a)=>`https://ethplorer.io/address/${a}`;
+  let lp_type='unknown'; if(burnPct>=1) lp_type='burn'; else if(lockPct>=1) lp_type='lp';
+  const url=(a)=>`https://ethplorer.io/address/${a}`;
   const bh=hs.find(h=> KNOWN_BURN_ADDRS.has((h.address||'').toLowerCase()) );
   const lh=hs.find(h=> LOCKER_HINTS.some(k=> ((h.owner?.name||h.address||'').toLowerCase().includes(k)) ) );
-  return {
-    lp_pct_est:+(burnPct+lockPct).toFixed(2),
-    lp_type, locker_name: topLocker||'',
-    burn_proof_url: bh?tokenUrl(bh.address):'',
-    locker_proof_url: lh?tokenUrl(lh.address):''
-  };
+  return {lp_pct_est:+(burnPct+lockPct).toFixed(2), lp_type, locker_name:topLocker||'', burn_proof_url:bh?url(bh.address):'', locker_proof_url:lh?url(lh.address):''};
 }
 
-/* ========== MAIN ========== */
-let LAST_ROWS=[];
+/* ===== Main ===== */
+let LAST_ROWS=[]; let CANCEL=false;
 
-async function run(){
-  const days = +by('days').value || 14;
-  const mult = +by('mult').value || 3;
-  const lpmin = +by('lpmin').value || 80;
-  const seedLimit = +by('seedLimit').value || 20;
-  const corsBase = by('cors').value.trim();
-  const strict = by('strict').checked;
-
-  /* カレンダー優先 → 明示UNIXがあれば上書き */
+function datePrefToUnix(){
   let startTs = dateToStartUnix(by('dateStart').value);
   let endTs = dateToEndUnix(by('dateEnd').value);
   if(by('startTs').value) startTs = +by('startTs').value;
   if(by('endTs').value) endTs = +by('endTs').value;
+  return {startTs,endTs};
+}
 
-  by('csvBtn').disabled = true;
-  by('wrapTable').innerHTML='';
-  by('notes').textContent='';
-  by('progress').textContent='preparing…';
+async function run(){
+  CANCEL=false; by('cancelBtn').disabled=false;
+  by('csvBtn').disabled=true; by('wrapTable').innerHTML=''; by('notes').innerHTML='';
+  setBar(0); by('progress').textContent='preparing…';
 
-  // 1) Trending seeds
-  const {seeds, source} = await getTrendingSeeds({limit:seedLimit, corsBase});
-  const uniq = new Map();
-  for(const s of seeds){ uniq.set(s.poolAddress.toLowerCase(), s); }
-  const seedArr = [...uniq.values()];
+  const days=+by('days').value||14, mult=+by('mult').value||3, lpmin=+by('lpmin').value||80, seedLimit=+by('seedLimit').value||20;
+  const strict=by('strict').checked, corsBase=by('cors').value.trim();
+  const {startTs,endTs}=datePrefToUnix();
 
-  by('params').textContent = [
+  by('params').textContent=[
     `Params: days=${days}, mult=${mult}, LP>=${lpmin}%`,
-    `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`,
-    `${source} trending seeds: ${seedArr.length}`
+    `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`
   ].join('\n');
 
-  const rows=[];
-  let idx=0;
-  for(const s of seedArr){
-    idx++;
-    by('progress').textContent = `fetching ${idx}/${seedArr.length}  (${s.name||''})`;
-    await sleep(300);
+  try{
+    log('トレンド取得開始');
+    const {seeds,source} = await getTrendingSeeds({limit:seedLimit, corsBase});
+    if(CANCEL) throw new Error('cancelled');
+    const uniq=new Map(); for(const s of seeds){ uniq.set(s.poolAddress.toLowerCase(), s); }
+    const seedArr=[...uniq.values()];
+    log(`seed数: ${seedArr.length}（source: ${source}）`);
+    if(seedArr.length===0){ by('progress').textContent='seed=0'; setBar(0); return; }
 
-    // 2) OHLCV
-    let candles=[];
-    try{
-      candles = await getDailyOHLCV_eth_pool(s.poolAddress, {limit:120, corsBase});
-    }catch(e){ continue; }
+    const rows=[]; let done=0;
+    for(const s of seedArr){
+      if(CANCEL) throw new Error('cancelled');
+      by('progress').textContent=`${done}/${seedArr.length} 取得中… ${s.name||''}`;
+      log(`OHLCV/LP 取得: ${s.poolAddress}`);
+      setBar(done/seedArr.length);
 
-    // 期間フィルタ
-    if(startTs||endTs){
-      candles = candles.filter(c=>{
-        if(startTs && c.ts < startTs) return false;
-        if(endTs && c.ts > endTs) return false;
-        return true;
+      let candles=[]; try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120,corsBase}); }catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); }
+      if(startTs||endTs){
+        candles = candles.filter(c=> (!startTs||c.ts>=startTs) && (!endTs||c.ts<=endTs) );
+      }
+      const spike = computeSpike14(candles, days);
+
+      let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
+      try{ const hs=await getTopHolders_lp(s.poolAddress,{corsBase}); lpInfo=estimateLP(hs); }catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); }
+
+      const multV=spike?.multiple_14d_close||null;
+      let passes=true, reason=[];
+      if(strict){
+        if(!(multV && multV>=mult)){ passes=false; reason.push('mult'); }
+        if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)){ passes=false; reason.push('lp'); }
+      }
+
+      rows.push({
+        token_pool: s.name || (s.base&&s.quote?`${s.base}/${s.quote}`:''), address:s.poolAddress,
+        peak_ts:spike?.peak_ts||'', peak_close:spike?.peak_close||'',
+        pre14_min_ts:spike?.pre14_min_ts||'', pre14_min_close:spike?.pre14_min_close||'',
+        multiple_14d_close: multV?multV.toFixed(2):'',
+        lp_type:lpInfo.lp_type, lp_pct_est:lpInfo.lp_pct_est??'', locker_name:lpInfo.locker_name||'',
+        start_ts:startTs||'', end_ts:endTs||'',
+        data_mode: strict?'strict':'gecko-only',
+        dex_url:`https://dexscreener.com/ethereum/${s.poolAddress}`,
+        gecko_ohlcv_url:`https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=120`,
+        ethplorer_token_url:`https://ethplorer.io/address/${s.poolAddress}`,
+        burn_proof_url:lpInfo.burn_proof_url||'', locker_proof_url:lpInfo.locker_proof_url||'',
+        __passes:passes, __reason:reason.join(',')
       });
+
+      done++; setBar(done/seedArr.length);
     }
 
-    // 3) 14d spike
-    const spike = computeSpike14(candles, days);
-
-    // 4) LP
-    let lpInfo = {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
-    try{
-      const hs = await getTopHolders_lp(s.poolAddress, {corsBase});
-      lpInfo = estimateLP(hs);
-    }catch(e){}
-
-    // 5) フィルタ（厳密モード時）
-    const multV = spike?.multiple_14d_close || null;
-    let passes = true, reason=[];
-    if(strict){
-      if(!(multV && multV>=mult)){ passes=false; reason.push('mult'); }
-      if(!(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)){ passes=false; reason.push('lp'); }
-    }
-
-    rows.push({
-      token_pool: s.name || (s.base&&s.quote?`${s.base}/${s.quote}`:''),
-      address: s.poolAddress,
-      peak_ts: spike?.peak_ts || '',
-      peak_close: spike?.peak_close || '',
-      pre14_min_ts: spike?.pre14_min_ts || '',
-      pre14_min_close: spike?.pre14_min_close || '',
-      multiple_14d_close: multV ? multV.toFixed(2) : '',
-      lp_type: lpInfo.lp_type,
-      lp_pct_est: lpInfo.lp_pct_est ?? '',
-      locker_name: lpInfo.locker_name || '',
-      start_ts: startTs||'',
-      end_ts: endTs||'',
-      data_mode: strict ? 'strict' : 'gecko-only',
-      dex_url: `https://dexscreener.com/ethereum/${s.poolAddress}`,
-      gecko_ohlcv_url: `https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=120`,
-      ethplorer_token_url: `https://ethplorer.io/address/${s.poolAddress}`,
-      burn_proof_url: lpInfo.burn_proof_url || '',
-      locker_proof_url: lpInfo.locker_proof_url || '',
-      __passes: passes, __reason: reason.join(',')
-    });
+    renderTable(rows,{strict});
+    LAST_ROWS=rows;
+    const shown = strict ? rows.filter(r=>r.__passes).length : rows.length;
+    by('progress').textContent = `完了: ${shown} hits（total ${rows.length}）`;
+    by('csvBtn').disabled = rows.length===0 ? true : false;
+    log('スキャン完了');
+  }catch(e){
+    if(String(e)==='Error: cancelled'){ log('ユーザーがキャンセルしました'); by('progress').textContent='cancelled'; }
+    else{ log(`致命的エラー: ${e.message||e}`, true); by('progress').textContent='error'; }
+  }finally{
+    setBar(1); by('cancelBtn').disabled=true;
   }
-
-  renderTable(rows, {strict});
-  LAST_ROWS = rows;
-  by('csvBtn').disabled = rows.length===0;
-  by('progress').textContent = `完了: ${ (strict? rows.filter(r=>r.__passes).length : rows.length) } hits（showing ${ (strict? rows.filter(r=>r.__passes).length : rows.length) }）`;
-  by('notes').textContent =
-    (strict? '厳密モード：倍率とLP%のしきい値を満たす行のみ表示。' : '早見モード：トレンド種を素通しで表示。') +
-    ' 抽出期間は上のカレンダーで指定できます（その範囲内で14日スパイクを検出）。';
 }
 
 function renderTable(rows,{strict}){
@@ -347,14 +333,14 @@ function renderTable(rows,{strict}){
       <th>LP% (est)</th><th>LP type</th><th>locker</th><th>Links</th>
     </tr></thead><tbody>`;
   show.forEach((r,i)=>{
-    const m = +r.multiple_14d_close || 0;
-    const cls = m>=3?'good':(m>=2?'warn':'');
+    const m=+r.multiple_14d_close||0;
+    const mcls = m>=3?'good':(m>=2?'warn':'');
     const lpcls = (r.lp_pct_est>=80)?'good':(r.lp_pct_est>=50?'warn':'bad');
     html += `<tr>
       <td class="num">${i+1}</td>
       <td>${r.token_pool||''}</td>
       <td><a href="${r.dex_url}" target="_blank">${r.address.slice(0,6)}…${r.address.slice(-4)}</a></td>
-      <td class="num ${cls}">${r.multiple_14d_close||''}</td>
+      <td class="num ${mcls}">${r.multiple_14d_close||''}</td>
       <td class="num">${r.peak_ts?ts2(r.peak_ts):''}</td>
       <td class="num">${r.pre14_min_ts?ts2(r.pre14_min_ts):''}</td>
       <td class="num ${lpcls}">${r.lp_pct_est!==''?fmtNum(r.lp_pct_est,2)+'%':''}</td>
@@ -373,12 +359,13 @@ function renderTable(rows,{strict}){
 
 /* UI */
 by('runBtn').addEventListener('click', run);
+by('cancelBtn').addEventListener('click', ()=>{ CANCEL=true; by('cancelBtn').disabled=true; });
 by('csvBtn').addEventListener('click', ()=>{
   if(!LAST_ROWS.length) return;
   const now = new Date();
-  const fname = `meme_trending_eth_${now.getTime()}.csv`;
+  const name = `meme_trending_eth_${now.getTime()}.csv`;
   const out = LAST_ROWS.map(({__passes,__reason,...rest})=>rest);
-  dl(fname, toCSV(out));
+  dl(name, toCSV(out));
 });
 </script>
 </body>
