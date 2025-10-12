@@ -52,21 +52,14 @@
     <div class="ctl"><label>Trending 種（上限）</label><input id="seedLimit" type="number" value="20" min="5" max="100"></div>
     <div class="ctl"><label>厳密モード</label><div><input id="strict" type="checkbox" checked> <span class="pill">days×mult と LP% フィルタを適用</span></div></div>
     <div class="ctl"><label>LP%必須</label><div><input id="lpRequired" type="checkbox" checked> <span class="pill">LP%が取れない行は除外</span></div></div>
+    <div class="ctl"><label>LP取得は倍率通過後のみ（推奨）</label><div><input id="lpAfterMult" type="checkbox" checked> <span class="pill">mult未達はEthplorerを呼ばない</span></div></div>
   </div>
 
   <div class="row" style="margin-top:8px">
-    <div class="ctl">
-      <label>抽出期間（開始, カレンダー）</label>
-      <input id="dateStart" type="date" />
-    </div>
-    <div class="ctl">
-      <label>抽出期間（終了, カレンダー）</label>
-      <input id="dateEnd" type="date" />
-    </div>
-    <div class="ctl" style="flex:1">
-      <label>（任意）CORS プロキシ</label>
-      <input id="cors" placeholder="空でも可／例: https://<your-worker>.workers.dev/?url=">
-    </div>
+    <div class="ctl"><label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date" /></div>
+    <div class="ctl"><label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date" /></div>
+    <div class="ctl" style="min-width:240px"><label>（任意）CORS プロキシ</label><input id="cors" placeholder="例: https://<your-worker>.workers.dev/?url="></div>
+    <div class="ctl" style="min-width:200px"><label>（任意）Ethplorer API key</label><input id="ethKey" placeholder="未入力なら freekey を使用"></div>
     <div class="ctl">
       <label>&nbsp;</label>
       <div style="display:flex;gap:8px">
@@ -102,7 +95,7 @@
 </main>
 
 <script>
-/* ===== Utilities ===== */
+/* ========= Utilities ========= */
 const by = (id)=>document.getElementById(id);
 const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 const ts2 = (t)=> new Date(t*1000).toLocaleString();
@@ -117,7 +110,7 @@ function log(msg, isErr=false){
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
 
-/* ===== CORS（自動判別＋フォールバック） ===== */
+/* ========= CORS helper ========= */
 function buildProxiedUrl(base, url){
   if(!base) return url;
   const b = base.trim();
@@ -141,13 +134,7 @@ async function _fetchJson(u, {timeout=12000, label='' }={}){
 }
 async function getJson(url, {label='', timeout=12000}={}){
   const userBase = by('cors').value.trim();
-  const bases = [
-    '',                                    // 1. 直
-    userBase || null,                      // 2. ユーザー指定
-    'https://cors.isomorphic-git.org/',    // 3. prefix型
-    'https://corsproxy.io/?url=',          // 4. ?url=型
-    'https://api.allorigins.win/raw?url='  // 5. ?url=型
-  ].filter(Boolean);
+  const bases = ['', userBase || null, 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url='].filter(Boolean);
   let lastErr;
   for(const b of bases){
     const u = buildProxiedUrl(b, url);
@@ -157,7 +144,7 @@ async function getJson(url, {label='', timeout=12000}={}){
   throw lastErr;
 }
 
-/* ===== CSV ===== */
+/* ========= CSV ========= */
 function toCSV(rows){
   const esc = (v)=> v==null ? '' : /[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);
   const header = Object.keys(rows[0]||{});
@@ -172,16 +159,16 @@ function dl(name, text){
   URL.revokeObjectURL(a.href);
 }
 
-/* ===== Dates -> UNIX (local) ===== */
+/* ========= Dates -> UNIX (local) ========= */
 function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return Math.floor(d.getTime()/1000); }
 function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000)+1; }
 
-/* ===== レート制御（429対策） ===== */
+/* ========= Rate control ========= */
 let lastEthCall = 0, lastGeckoCall = 0;
-const ETHPLORER_MIN_INTERVAL = 2800; // 2.8s/req（強め）
+const ETHPLORER_MIN_INTERVAL = 2800; // 2.8s/req
 const GECKO_MIN_INTERVAL     =  700; // 0.7s/req
 
-/* ===== Trending ===== */
+/* ========= Trending ========= */
 async function getTrendingSeeds({limit=20}){
   try{
     const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`, {label:'Gecko trending'});
@@ -205,7 +192,7 @@ async function getTrendingSeeds({limit=20}){
   return {seeds, source:'DexScreener'};
 }
 
-/* ===== OHLCV（日足）＆ 14日スパイク ===== */
+/* ========= OHLCV & spike ========= */
 async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
   const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL - Date.now());
   if (wait > 0) await sleep(wait + jitter());
@@ -243,13 +230,11 @@ function computeSpike14(ohlc, days=14){
   };
 }
 
-/* ===== LP holders（Ethplorer） ===== */
+/* ========= Ethplorer (TopHolders) ========= */
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
 
-async function getTopHolders_lp(lpAddress){
-  // Ethplorer は公開プロキシ経由だと 400/406 が出やすいので、
-  // ユーザー指定CORS（Workers等）がある場合はそれを優先して使う。
+async function getTopHolders_lp(lpAddress, {apiKey='freekey'}={}){
   const userBase = by('cors').value.trim();
   const build = (suf)=> (userBase? buildProxiedUrl(userBase, `https://api.ethplorer.io/${suf}`) : `https://api.ethplorer.io/${suf}`);
 
@@ -258,13 +243,12 @@ async function getTopHolders_lp(lpAddress){
     if (wait > 0) await sleep(wait + jitter());
     lastEthCall = Date.now();
 
-    const url = build(`getTopTokenHolders/${lpAddress}?apiKey=freekey&limit=50`);
+    const url = build(`getTopTokenHolders/${lpAddress}?apiKey=${encodeURIComponent(apiKey)}&limit=50`);
     try{
       const j = await _fetchJson(url, {label:`TopHolders ${lpAddress.slice(0,6)}…`});
       return j?.holders || [];
     }catch(e){
       const msg = String(e.message||e);
-      // 429 は待って再試行、400/406 でもプロキシが落ち着くと返るケースあり
       if (msg.includes('429')) { await sleep(2200 + attempt*600); continue; }
       if (msg.includes('400') || msg.includes('406') || msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('timeout')) {
         await sleep(1400 + attempt*500); continue;
@@ -274,7 +258,6 @@ async function getTopHolders_lp(lpAddress){
   }
   throw new Error('TopHolders: retries exhausted');
 }
-
 function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
   let burnPct=0,lockPct=0,topLocker='';
@@ -290,7 +273,7 @@ function estimateLP(hs=[]){
   return {lp_pct_est:+(burnPct+lockPct).toFixed(2), lp_type, locker_name:topLocker||'', burn_proof_url:bh?url(bh.address):'', locker_proof_url:lh?url(lh.address):''};
 }
 
-/* ===== Main ===== */
+/* ========= Main ========= */
 let LAST_ROWS=[]; let CANCEL=false;
 
 function datePrefToUnix(){
@@ -307,7 +290,8 @@ async function run(){
   setBar(0); by('progress').textContent='preparing…';
 
   const days=+by('days').value||14, mult=+by('mult').value||3, lpmin=+by('lpmin').value||80, seedLimit=+by('seedLimit').value||20;
-  const strict=by('strict').checked, lpRequired=by('lpRequired').checked;
+  const strict=by('strict').checked, lpRequired=by('lpRequired').checked, lpAfterMult=by('lpAfterMult').checked;
+  const ethKey = (by('ethKey').value || 'freekey').trim();
   const {startTs,endTs}=datePrefToUnix();
 
   by('params').textContent=[
@@ -325,7 +309,7 @@ async function run(){
     if(seedArr.length===0){ by('progress').textContent='seed=0'; setBar(0); return; }
 
     const rows=[]; let done=0;
-    let tphOk=0, tphFail=0, ohlcvOk=0, ohlcvFail=0;
+    let tphOk=0, tphFail=0, tphSkip=0, ohlcvOk=0, ohlcvFail=0;
 
     for(const s of seedArr){
       if(CANCEL) throw new Error('cancelled');
@@ -341,14 +325,20 @@ async function run(){
         candles = candles.filter(c=> (!startTs||c.ts>=startTs) && (!endTs||c.ts<=endTs) );
       }
       const spike = computeSpike14(candles, days);
+      const multV=spike?.multiple_14d_close||null;
 
-      // LP
+      // LP（必要な時だけ叩く）
       let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
-      try{ const hs=await getTopHolders_lp(s.poolAddress); lpInfo=estimateLP(hs); tphOk++; }
-      catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); tphFail++; }
+      let needLP = strict && lpRequired;
+      if (needLP && lpAfterMult && !(multV && multV >= mult)) {
+        needLP = false; tphSkip++; log('TopHolders: skip (mult未達)');
+      }
+      if (needLP){
+        try{ const hs=await getTopHolders_lp(s.poolAddress,{apiKey:ethKey}); lpInfo=estimateLP(hs); tphOk++; }
+        catch(e){ log(`TopHolders失敗: ${e.message||e}`,true); tphFail++; }
+      }
 
       // 判定
-      const multV=spike?.multiple_14d_close||null;
       let passes=true, reason=[];
       if(strict){
         if(!(multV && multV>=mult)) { passes=false; reason.push('mult'); }
@@ -375,12 +365,13 @@ async function run(){
       done++; setBar(done/seedArr.length);
     }
 
+    // 表示・要約
     renderTable(rows,{strict, lpmin});
     LAST_ROWS=rows;
     const shown = strict ? rows.filter(r=>r.__passes).length : rows.length;
     by('progress').textContent = `完了: ${shown} hits（total ${rows.length}）`;
     by('csvBtn').disabled = rows.length===0;
-    log(`要約: OHLCV 成功 ${ohlcvOk}/失敗 ${ohlcvFail}｜TopHolders 成功 ${tphOk}/失敗 ${tphFail}`);
+    log(`要約: OHLCV 成功 ${ohlcvOk}/失敗 ${ohlcvFail}｜TopHolders 成功 ${tphOk}/失敗 ${tphFail}｜skip ${tphSkip}`);
     log('スキャン完了');
   }catch(e){
     if(String(e)==='Error: cancelled'){ log('ユーザーがキャンセルしました'); by('progress').textContent='cancelled'; }
@@ -423,7 +414,7 @@ function renderTable(rows,{strict, lpmin}){
   by('wrapTable').innerHTML = html;
 }
 
-/* ===== UI ===== */
+/* ========= UI ========= */
 by('runBtn').addEventListener('click', run);
 by('cancelBtn').addEventListener('click', ()=>{ CANCEL=true; by('cancelBtn').disabled=true; });
 by('csvBtn').addEventListener('click', ()=>{
