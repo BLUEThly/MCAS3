@@ -58,7 +58,7 @@
   <div class="row" style="margin-top:8px">
     <div class="ctl"><label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date" /></div>
     <div class="ctl"><label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date" /></div>
-    <div class="ctl" style="min-width:240px"><label>（任意）CORS プロキシ</label><input id="cors" placeholder="例: https://<your-worker>.workers.dev/?url="></div>
+    <div class="ctl" style="min-width:240px"><label>（任意）CORS プロキシ（Ethplorer専用）</label><input id="cors" placeholder="例: https://<your-worker>.workers.dev/?url="></div>
     <div class="ctl" style="min-width:200px"><label>（任意）Ethplorer API key</label><input id="ethKey" placeholder="未入力なら freekey を使用"></div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -110,7 +110,7 @@ function log(msg, isErr=false){
 }
 function setBar(f01){ by('pbar').style.width = `${Math.max(0,Math.min(1,f01))*100}%`; }
 
-/* ========= CORS helper ========= */
+/* ========= Fetch helpers ========= */
 function buildProxiedUrl(base, url){
   if(!base) return url;
   const b = base.trim();
@@ -132,9 +132,23 @@ async function _fetchJson(u, {timeout=12000, label='' }={}){
     try{ return JSON.parse(txt); }catch(_){ throw new Error(`Non-JSON body (${txt.slice(0,80)}…)`); }
   }catch(e){ clearTimeout(tid); throw e; }
 }
-async function getJson(url, {label='', timeout=12000}={}){
-  const userBase = by('cors').value.trim();
-  const bases = ['', userBase || null, 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url='].filter(Boolean);
+
+/* ------ ホスト別ルーティング ------ */
+async function getJsonSmart(url, {label='', timeout=12000}={}){
+  const h = new URL(url).hostname;
+  const userBase = by('cors').value.trim(); // Ethplorer専用に使う前提
+
+  let bases;
+  if (h.includes('geckoterminal.com') || h.includes('dexscreener.com')) {
+    // ここは基本CORS OK。プロキシを通すと429/40xが増えるため直を優先固定。
+    bases = ['','https://cors.isomorphic-git.org/']; // 最小限のフォールバックだけ
+  } else if (h.includes('ethplorer.io')) {
+    // ここはCORSが厳しいのでユーザー指定を最優先、その後フォールバック
+    bases = [ userBase || '', 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url=' ];
+  } else {
+    bases = ['','https://cors.isomorphic-git.org/'];
+  }
+
   let lastErr;
   for(const b of bases){
     const u = buildProxiedUrl(b, url);
@@ -159,19 +173,19 @@ function dl(name, text){
   URL.revokeObjectURL(a.href);
 }
 
-/* ========= Dates -> UNIX (local) ========= */
+/* ========= Dates -> UNIX ========= */
 function dateToStartUnix(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return Math.floor(d.getTime()/1000); }
 function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); return Math.floor(d.getTime()/1000)+1; }
 
 /* ========= Rate control ========= */
-let lastEthCall = 0, lastGeckoCall = 0;
+let lastEthCall = 0, lastGeckoCall = 0, geckoPenalty = 0;
 const ETHPLORER_MIN_INTERVAL = 2800; // 2.8s/req
-const GECKO_MIN_INTERVAL     =  700; // 0.7s/req
+let   GECKO_MIN_INTERVAL     =  700; // 0.7s/req（429検知で自動増加）
 
 /* ========= Trending ========= */
 async function getTrendingSeeds({limit=20}){
   try{
-    const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`, {label:'Gecko trending'});
+    const j = await getJsonSmart(`https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1`, {label:'Gecko trending'});
     const arr = (j?.data||[]).slice(0,limit);
     const pools = arr.map(x=>({
       poolAddress: x?.attributes?.address,
@@ -181,7 +195,7 @@ async function getTrendingSeeds({limit=20}){
     })).filter(x=>x.poolAddress);
     if(pools.length){ log(`Gecko trending: ${pools.length} seeds`); return {seeds:pools, source:'GeckoTerminal'}; }
   }catch(e){ log(`Gecko trending failed: ${e.message||e}`, true); }
-  const j2 = await getJson(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {label:'DexScreener trending'});
+  const j2 = await getJsonSmart(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`, {label:'DexScreener trending'});
   const seeds = (j2?.pairs||[]).filter(p=> (p.chainId==='ethereum'||p.chainId==='eth') ).slice(0,limit).map(p=>({
     poolAddress: p.pairAddress,
     base: p.baseToken?.symbol||'',
@@ -194,18 +208,22 @@ async function getTrendingSeeds({limit=20}){
 
 /* ========= OHLCV & spike ========= */
 async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
-  const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL - Date.now());
+  const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL + geckoPenalty - Date.now());
   if (wait > 0) await sleep(wait + jitter());
   lastGeckoCall = Date.now();
 
   for(let a=0;a<3;a++){
     try{
-      const j = await getJson(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
+      const j = await getJsonSmart(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${poolAddress}/ohlcv/day?aggregate=1&limit=${limit}`, {label:`OHLCV ${poolAddress.slice(0,6)}…`});
       const arr = j?.data?.attributes?.candles || [];
+      geckoPenalty = Math.max(0, geckoPenalty - 100); // 徐々に回復
       return arr.map(x=>({ts:+x[0], o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]}));
     }catch(e){
       const msg = String(e.message||e);
-      if(msg.includes('429')){ await sleep(1500 + a*800); continue; }
+      if(msg.includes('429')){
+        geckoPenalty = Math.min(3000, geckoPenalty + 600); // 次回以降ゆっくりに
+        await sleep(1500 + a*800); continue;
+      }
       throw e;
     }
   }
@@ -239,7 +257,7 @@ async function getTopHolders_lp(lpAddress, {apiKey='freekey'}={}){
   const build = (suf)=> (userBase? buildProxiedUrl(userBase, `https://api.ethplorer.io/${suf}`) : `https://api.ethplorer.io/${suf}`);
 
   for (let attempt=0; attempt<6; attempt++){
-    const wait = Math.max(0, lastEthCall + ETHPLORER_MIN_INTERVAL - Date.now());
+    const wait = Math.max(0, lastEthCall + 2800 - Date.now());
     if (wait > 0) await sleep(wait + jitter());
     lastEthCall = Date.now();
 
@@ -291,7 +309,7 @@ async function run(){
 
   const days=+by('days').value||14, mult=+by('mult').value||3, lpmin=+by('lpmin').value||80, seedLimit=+by('seedLimit').value||20;
   const strict=by('strict').checked, lpRequired=by('lpRequired').checked, lpAfterMult=by('lpAfterMult').checked;
-  const ethKey = (by('ethKey').value || 'freekey').trim();
+  const ethKey = (by('ethKey')?.value || 'freekey').trim();
   const {startTs,endTs}=datePrefToUnix();
 
   by('params').textContent=[
@@ -327,7 +345,7 @@ async function run(){
       const spike = computeSpike14(candles, days);
       const multV=spike?.multiple_14d_close||null;
 
-      // LP（必要な時だけ叩く）
+      // LP（必要な時だけEthplorerへ）
       let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
       let needLP = strict && lpRequired;
       if (needLP && lpAfterMult && !(multV && multV >= mult)) {
@@ -365,7 +383,6 @@ async function run(){
       done++; setBar(done/seedArr.length);
     }
 
-    // 表示・要約
     renderTable(rows,{strict, lpmin});
     LAST_ROWS=rows;
     const shown = strict ? rows.filter(r=>r.__passes).length : rows.length;
