@@ -136,14 +136,12 @@ async function _fetchJson(u, {timeout=12000, label='' }={}){
 /* ------ ホスト別ルーティング ------ */
 async function getJsonSmart(url, {label='', timeout=12000}={}){
   const h = new URL(url).hostname;
-  const userBase = by('cors').value.trim(); // Ethplorer専用に使う前提
+  const userBase = by('cors').value.trim(); // Ethplorer専用
 
   let bases;
   if (h.includes('geckoterminal.com') || h.includes('dexscreener.com')) {
-    // ここは基本CORS OK。プロキシを通すと429/40xが増えるため直を優先固定。
-    bases = ['','https://cors.isomorphic-git.org/']; // 最小限のフォールバックだけ
+    bases = ['','https://cors.isomorphic-git.org/']; // 直＋最低限のフォールバック
   } else if (h.includes('ethplorer.io')) {
-    // ここはCORSが厳しいのでユーザー指定を最優先、その後フォールバック
     bases = [ userBase || '', 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url=' ];
   } else {
     bases = ['','https://cors.isomorphic-git.org/'];
@@ -180,7 +178,7 @@ function dateToEndUnix(s){ if(!s) return null; const d=new Date(s+'T23:59:59'); 
 /* ========= Rate control ========= */
 let lastEthCall = 0, lastGeckoCall = 0, geckoPenalty = 0;
 const ETHPLORER_MIN_INTERVAL = 2800; // 2.8s/req
-let   GECKO_MIN_INTERVAL     =  700; // 0.7s/req（429検知で自動増加）
+let   GECKO_MIN_INTERVAL     =  700; // 429検知で自動増加
 
 /* ========= Trending ========= */
 async function getTrendingSeeds({limit=20}){
@@ -207,6 +205,7 @@ async function getTrendingSeeds({limit=20}){
 }
 
 /* ========= OHLCV & spike ========= */
+// 期間長に応じて必要本数を見積もって取得
 async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
   const wait = Math.max(0, lastGeckoCall + GECKO_MIN_INTERVAL + geckoPenalty - Date.now());
   if (wait > 0) await sleep(wait + jitter());
@@ -221,7 +220,7 @@ async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
     }catch(e){
       const msg = String(e.message||e);
       if(msg.includes('429')){
-        geckoPenalty = Math.min(3000, geckoPenalty + 600); // 次回以降ゆっくりに
+        geckoPenalty = Math.min(3000, geckoPenalty + 600);
         await sleep(1500 + a*800); continue;
       }
       throw e;
@@ -229,22 +228,35 @@ async function getDailyOHLCV_eth_pool(poolAddress, {limit=120}={}){
   }
   throw new Error('OHLCV: retries exhausted');
 }
-function computeSpike14(ohlc, days=14){
+
+// ★ 期間内のどこかで14日ウィンドウの最大倍率を探索
+function bestSpikeInWindow(ohlc, windowDays=14){
   if(!ohlc?.length) return null;
   const sorted=[...ohlc].sort((a,b)=>a.ts-b.ts);
-  const lastN=sorted.slice(-days);
-  if(lastN.length<Math.max(5,Math.floor(days*0.6))) return null;
-  let peakIdx=-1,peakClose=-Infinity;
-  lastN.forEach((c,i)=>{ if(c.c>peakClose){peakClose=c.c; peakIdx=i;}});
-  const peak=lastN[peakIdx], peakTs=peak.ts;
-  const gi=sorted.findIndex(c=>c.ts===peakTs);
-  const preWin=sorted.slice(Math.max(0,gi-days), gi);
-  if(!preWin.length) return null;
-  let minClose=Infinity, minC=null; preWin.forEach(c=>{ if(c.c<minClose){minClose=c.c; minC=c;} });
+  const N=sorted.length;
+  if(N < Math.max(8, Math.floor(windowDays*0.8))) return null;
+
+  const DAY = 86400;
+  let bestMult = 0, bestPeak=null, bestMin=null;
+
+  for(let i=0;i<N;i++){
+    const peak=sorted[i];
+    const startTs = peak.ts - windowDays*DAY;
+    let j=i-1, minClose=Infinity, minC=null;
+    while(j>=0 && sorted[j].ts>=startTs){
+      if(sorted[j].c < minClose){ minClose=sorted[j].c; minC=sorted[j]; }
+      j--;
+    }
+    if(minC && minClose>0){
+      const mult = peak.c / minClose;
+      if(mult > bestMult){ bestMult = mult; bestPeak = peak; bestMin = minC; }
+    }
+  }
+  if(!bestPeak || !bestMin) return null;
   return {
-    peak_ts: peakTs, peak_close: peakClose,
-    pre14_min_ts: minC?.ts||null, pre14_min_close: minClose||null,
-    multiple_14d_close: (minClose>0)? peakClose/minClose : null
+    peak_ts: bestPeak.ts, peak_close: bestPeak.c,
+    pre14_min_ts: bestMin.ts, pre14_min_close: bestMin.c,
+    multiple_14d_close: bestMult
   };
 }
 
@@ -312,6 +324,13 @@ async function run(){
   const ethKey = (by('ethKey')?.value || 'freekey').trim();
   const {startTs,endTs}=datePrefToUnix();
 
+  // 必要なローソク本数を推定（期間長＋days＋バッファ）
+  let ohlcLimit = 120;
+  if(startTs && endTs && endTs>startTs){
+    const daysLen = Math.ceil((endTs - startTs)/86400);
+    ohlcLimit = Math.min(365, Math.max(daysLen + days + 5, 40)); // 上限365
+  }
+
   by('params').textContent=[
     `Params: days=${days}, mult=${mult}, LP>=${lpmin}%, lpRequired=${lpRequired}`,
     `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`
@@ -337,13 +356,20 @@ async function run(){
 
       // OHLCV
       let candles=[];
-      try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:120}); ohlcvOk++; }
+      try{ candles = await getDailyOHLCV_eth_pool(s.poolAddress,{limit:ohlcLimit}); ohlcvOk++; }
       catch(e){ log(`OHLCV失敗: ${e.message||e}`,true); ohlcvFail++; }
+
+      // 期間でフィルタしてから「期間全域で」14日最大倍率を探索
       if(startTs||endTs){
         candles = candles.filter(c=> (!startTs||c.ts>=startTs) && (!endTs||c.ts<=endTs) );
       }
-      const spike = computeSpike14(candles, days);
+      const spike = bestSpikeInWindow(candles, days);
       const multV=spike?.multiple_14d_close||null;
+      if(spike){
+        log(`倍率サマリ: best×${multV?multV.toFixed(2):'-'} at ${spike.peak_ts?new Date(spike.peak_ts*1000).toLocaleDateString():''}`);
+      }else{
+        log('倍率サマリ: データ不足/有効な上昇なし');
+      }
 
       // LP（必要な時だけEthplorerへ）
       let lpInfo={lp_pct_est:null, lp_type:'unknown', locker_name:'', burn_proof_url:'', locker_proof_url:''};
@@ -374,7 +400,7 @@ async function run(){
         start_ts:startTs||'', end_ts:endTs||'',
         data_mode: strict?'strict':'gecko-only',
         dex_url:`https://dexscreener.com/ethereum/${s.poolAddress}`,
-        gecko_ohlcv_url:`https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=120`,
+        gecko_ohlcv_url:`https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=${ohlcLimit}`,
         ethplorer_token_url:`https://ethplorer.io/address/${s.poolAddress}`,
         burn_proof_url:lpInfo.burn_proof_url||'', locker_proof_url:lpInfo.locker_proof_url||'',
         __passes:passes, __reason:reason.join(',')
