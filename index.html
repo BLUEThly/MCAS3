@@ -101,12 +101,19 @@ function log(m,e=false){const L=by('notes');const line=`[${new Date().toLocaleTi
 function setBar(f){by('pbar').style.width=`${Math.max(0,Math.min(1,f))*100}%`;}
 
 /* ============ Fetch helper（CORS ルーティング） ============ */
-function buildProxiedUrl(base,url){if(!base)return url;const b=base.trim();if(/\{url\}/i.test(b))return b.replace(/\{url\}/ig,encodeURIComponent(url));if(/[\?&]url=$/i.test(b)||(/\?$/.test(b)&&/url=/.test(b)))return b+encodeURIComponent(url);if(/[\?&]url=\/$/.test(b))return b.replace(/\/$/,'')+encodeURIComponent(url);return b.replace(/\/+$/,'')+'/'+url;}
+function buildProxiedUrl(base,url){
+  if(!base)return url;
+  const b=base.trim();
+  if(/\{url\}/i.test(b)) return b.replace(/\{url\}/ig,encodeURIComponent(url));
+  if(/[\?&]url=$/i.test(b)||(/\?$/.test(b)&&/url=/.test(b))) return b+encodeURIComponent(url);
+  if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/,'')+encodeURIComponent(url);
+  return b.replace(/\/+$/,'')+'/'+url;
+}
 async function _fetchJson(u,{timeout=12000,label=''}={}){const ac=new AbortController();const tid=setTimeout(()=>ac.abort('timeout'),timeout);try{if(label)log(`GET ${label}: ${u.slice(0,140)}`);const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);const ct=(r.headers.get('content-type')||'').toLowerCase();const body=ct.includes('application/json')?await r.json():JSON.parse(await r.text());clearTimeout(tid);return body;}catch(e){clearTimeout(tid);throw e;}}
 async function getJsonSmart(url,{label='',timeout=12000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();
   let bases;
-  if(h.includes('geckoterminal.com')||h.includes('dexscreener.com'))bases=['','https://cors.isomorphic-git.org/'];
-  else if(h.includes('ethplorer.io'))bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
+  if(h.includes('geckoterminal.com')||h.includes('dexscreener.com')) bases=['','https://cors.isomorphic-git.org/'];
+  else if(h.includes('ethplorer.io')) bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
   else bases=['','https://cors.isomorphic-git.org/'];
   let last;
   for(const b of bases){const u=buildProxiedUrl(b,url);try{return await _fetchJson(u,{timeout,label});}
@@ -125,9 +132,10 @@ function datePrefToUnix(){let s=dateToStartUnix(by('dateStart').value);let e=dat
 
 /* ============ レート制御 ============ */
 let lastEth=0,lastGecko=0,geckoPenalty=0;
-const ETHPLORER_MIN_INTERVAL=2800; let GECKO_MIN_INTERVAL=700;
+const ETHPLORER_MIN_INTERVAL = 4000; // freekey は混みやすい
+let GECKO_MIN_INTERVAL=700;
 
-/* ============ トレンド（seed + tokenAddress解決） ============ */
+/* ============ トレンド種取得 ============ */
 function parseGeckoTokenId(id){ if(!id)return ''; const parts=id.split('_'); return parts[parts.length-1]?.toLowerCase()||''; }
 async function getTrendingSeeds({limit=20}){
   try{
@@ -136,15 +144,10 @@ async function getTrendingSeeds({limit=20}){
     const pools=arr.map(x=>{
       const poolAddress=x?.attributes?.address;
       const baseId=x?.relationships?.base_token?.data?.id;
-      return {
-        poolAddress,
-        tokenAddress:parseGeckoTokenId(baseId),
-        name:x?.attributes?.name||''
-      };
+      return { poolAddress, tokenAddress:parseGeckoTokenId(baseId), name:x?.attributes?.name||'' };
     }).filter(x=>x.poolAddress);
     if(pools.length){log(`Gecko trending: ${pools.length} seeds`);return {seeds:pools,source:'GeckoTerminal'};}
   }catch(e){log(`Gecko trending failed: ${e.message||e}`,true);}
-  // フォールバック: DexScreener
   const j2=await getJsonSmart(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`,{label:'DexScreener trending'});
   const seeds=(j2?.pairs||[]).filter(p=>p.chainId==='ethereum'||p.chainId==='eth').slice(0,limit).map(p=>({
     poolAddress:p.pairAddress, tokenAddress:(p.baseToken?.address||'').toLowerCase(), name:p.baseToken?.symbol&&p.quoteToken?.symbol?`${p.baseToken.symbol}/${p.quoteToken.symbol}`:(p.symbol||'')
@@ -153,19 +156,14 @@ async function getTrendingSeeds({limit=20}){
   return {seeds,source:'DexScreener'};
 }
 
-/* ============ Gecko OHLCV 抽出（堅牢化） ============ */
+/* ============ Gecko OHLCV 抽出（互換） ============ */
 function extractGeckoCandles(json){
   const attr = json?.data?.attributes || json?.data?.[0]?.attributes || {};
-  const cands = [
-    attr.candles,          // 旧/一部環境
-    attr.ohlcv_list,       // 多くの環境でこれ
-    attr.ohlcv,            // 念のため
-    attr.data              // 稀に data 配列の場合
-  ];
+  const cands = [attr.candles, attr.ohlcv_list, attr.ohlcv, attr.data];
   for(const a of cands){
     if(Array.isArray(a) && a.length && Array.isArray(a[0]) && a[0].length>=5) return a;
   }
-  return Array.isArray(cands[0]) ? cands[0] : [];
+  return [];
 }
 
 /* ============ OHLCV 取得 ============ */
@@ -193,7 +191,7 @@ async function getDailyOHLCV_eth_pool(addr,{limit=120}={}){
   throw new Error('OHLCV: retries exhausted');
 }
 
-/* ============ スパイク検出（可変ウィンドウ + 高値/安値） ============ */
+/* ============ スパイク検出（可変ウィンドウ） ============ */
 function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
   if(!ohlc?.length) return null;
   const sorted=[...ohlc].sort((a,b)=>a.ts-b.ts);
@@ -228,23 +226,36 @@ function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
 
-async function getTopHolders_lp(tokenAddr,{apiKey='freekey'}={}){
-  if(!tokenAddr) throw new Error('token address missing');
-  const user=by('cors').value.trim();
-  const build=s=> (user?buildProxiedUrl(user,`https://api.ethplorer.io/${s}`):`https://api.ethplorer.io/${s}`);
-  for(let k=0;k<6;k++){
-    const wait=Math.max(0,lastEth+ETHPLORER_MIN_INTERVAL-Date.now()); if(wait>0)await sleep(wait+jitter());
-    lastEth=Date.now();
-    const url=build(`getTopTokenHolders/${tokenAddr}?apiKey=${encodeURIComponent(apiKey)}&limit=50`);
-    try{const j=await _fetchJson(url,{label:`TopHolders ${tokenAddr.slice(0,6)}…`}); return j?.holders||[];}
-    catch(e){
-      const m=String(e.message||e);
-      if(m.includes('429')){await sleep(2200+k*600); continue;}
-      if(m.includes('400')||m.includes('406')||m.includes('Load failed')||m.includes('timeout')||m.includes('Failed to fetch')||m.includes('abort')){await sleep(1400+k*500); continue;}
-      throw e;
+async function getTopHolders_lp(tokenAddr,{apiKey='freekey'}={}) {
+  if (!tokenAddr) throw new Error('token address missing');
+  const baseUrl = `https://api.ethplorer.io/getTopTokenHolders/${tokenAddr}?apiKey=${encodeURIComponent(apiKey)}&limit=50`;
+
+  let tries = 0, lastErr = null;
+  while (tries < 8) {
+    tries++;
+    const wait = Math.max(0, lastEth + ETHPLORER_MIN_INTERVAL - Date.now());
+    if (wait > 0) await sleep(wait + jitter(80, 280));
+    lastEth = Date.now();
+
+    try {
+      const json = await getJsonSmart(baseUrl, { label: `TopHolders ${tokenAddr.slice(0,6)}…`, timeout: 12000 });
+      const holders = json?.holders || [];
+      return holders;
+    } catch (e) {
+      const msg = String(e.message || e);
+      if (msg.includes('429')) {
+        await sleep(2200 + tries * 600);
+      } else if (msg.includes('timeout') || msg.includes('abort') || msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS')) {
+        await sleep(1200 + tries * 400);
+      } else if (msg.includes('400') || msg.includes('403') || msg.includes('406') || msg.includes('5')) {
+        await sleep(1000 + tries * 300);
+      }
+      lastErr = e;
+      log(`TopHolders再試行 ${tries}/8: ${msg}`, true);
     }
   }
-  throw new Error('TopHolders: retries exhausted');
+  log('TopHolders: retries exhausted（LP%は unknown として続行）', true);
+  return [];
 }
 function estimateLP(hs=[]){
   if(!hs.length) return {lp_pct_est:null,lp_type:'unknown',locker_name:'',burn_proof_url:'',locker_proof_url:''};
