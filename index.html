@@ -90,7 +90,7 @@
 </main>
 
 <script>
-/* ==== Utils ==== */
+/* ============ Utils ============ */
 const by=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ts2=t=>new Date(t*1000).toLocaleString();
@@ -100,7 +100,7 @@ const normTs=t=> (t>1e12?Math.floor(t/1000):t);
 function log(m,e=false){const L=by('notes');const line=`[${new Date().toLocaleTimeString()}] ${m}`;L.innerHTML+=e?`<div class="err">${line}</div>`:`<div>${line}</div>`;L.scrollTop=L.scrollHeight;}
 function setBar(f){by('pbar').style.width=`${Math.max(0,Math.min(1,f))*100}%`;}
 
-/* ==== Fetch helper（CORS ルーティング） ==== */
+/* ============ Fetch helper（CORS ルーティング） ============ */
 function buildProxiedUrl(base,url){if(!base)return url;const b=base.trim();if(/\{url\}/i.test(b))return b.replace(/\{url\}/ig,encodeURIComponent(url));if(/[\?&]url=$/i.test(b)||(/\?$/.test(b)&&/url=/.test(b)))return b+encodeURIComponent(url);if(/[\?&]url=\/$/.test(b))return b.replace(/\/$/,'')+encodeURIComponent(url);return b.replace(/\/+$/,'')+'/'+url;}
 async function _fetchJson(u,{timeout=12000,label=''}={}){const ac=new AbortController();const tid=setTimeout(()=>ac.abort('timeout'),timeout);try{if(label)log(`GET ${label}: ${u.slice(0,140)}`);const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);const ct=(r.headers.get('content-type')||'').toLowerCase();const body=ct.includes('application/json')?await r.json():JSON.parse(await r.text());clearTimeout(tid);return body;}catch(e){clearTimeout(tid);throw e;}}
 async function getJsonSmart(url,{label='',timeout=12000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();
@@ -114,44 +114,37 @@ async function getJsonSmart(url,{label='',timeout=12000}={}){const h=new URL(url
   throw last;
 }
 
-/* ==== CSV ==== */
+/* ============ CSV ============ */
 function toCSV(rows){const esc=v=>v==null?'':/[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);const head=Object.keys(rows[0]||{});const out=[head.map(esc).join(',')];for(const r of rows)out.push(head.map(k=>esc(r[k])).join(','));return out.join('\n');}
 function dl(name,text){const blob=new Blob([text],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);}
 
-/* ==== 時刻 ==== */
+/* ============ 時刻 ============ */
 function dateToStartUnix(s){if(!s)return null;const d=new Date(s+'T00:00:00');return Math.floor(d.getTime()/1000);}
 function dateToEndUnix(s){if(!s)return null;const d=new Date(s+'T23:59:59');return Math.floor(d.getTime()/1000)+1;}
 function datePrefToUnix(){let s=dateToStartUnix(by('dateStart').value);let e=dateToEndUnix(by('dateEnd').value);if(by('startTs').value)s=+by('startTs').value;if(by('endTs').value)e=+by('endTs').value;return {startTs:s,endTs:e};}
 
-/* ==== レート制御 ==== */
+/* ============ レート制御 ============ */
 let lastEth=0,lastGecko=0,geckoPenalty=0;
 const ETHPLORER_MIN_INTERVAL=2800; let GECKO_MIN_INTERVAL=700;
 
-/* ==== トレンド（seed + tokenAddress解決） ==== */
-function parseGeckoTokenId(id){ // 例: "eth_0xabc..." or "ethereum_0xabc..."
-  if(!id)return '';
-  const parts=id.split('_');
-  return parts[parts.length-1]?.toLowerCase()||'';
-}
+/* ============ トレンド（seed + tokenAddress解決） ============ */
+function parseGeckoTokenId(id){ if(!id)return ''; const parts=id.split('_'); return parts[parts.length-1]?.toLowerCase()||''; }
 async function getTrendingSeeds({limit=20}){
-  // Gecko
   try{
     const j=await getJsonSmart('https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1',{label:'Gecko trending'});
     const arr=(j?.data||[]).slice(0,limit);
     const pools=arr.map(x=>{
       const poolAddress=x?.attributes?.address;
       const baseId=x?.relationships?.base_token?.data?.id;
-      const quoteId=x?.relationships?.quote_token?.data?.id;
       return {
         poolAddress,
-        baseSymbol:x?.attributes?.base_token_price_usd?x?.attributes?.name?.split('/')[0]:'',
         tokenAddress:parseGeckoTokenId(baseId),
         name:x?.attributes?.name||''
       };
     }).filter(x=>x.poolAddress);
     if(pools.length){log(`Gecko trending: ${pools.length} seeds`);return {seeds:pools,source:'GeckoTerminal'};}
   }catch(e){log(`Gecko trending failed: ${e.message||e}`,true);}
-  // DexScreener（フォールバック）
+  // フォールバック: DexScreener
   const j2=await getJsonSmart(`https://api.dexscreener.com/latest/dex/trending?limit=${limit}`,{label:'DexScreener trending'});
   const seeds=(j2?.pairs||[]).filter(p=>p.chainId==='ethereum'||p.chainId==='eth').slice(0,limit).map(p=>({
     poolAddress:p.pairAddress, tokenAddress:(p.baseToken?.address||'').toLowerCase(), name:p.baseToken?.symbol&&p.quoteToken?.symbol?`${p.baseToken.symbol}/${p.quoteToken.symbol}`:(p.symbol||'')
@@ -160,15 +153,35 @@ async function getTrendingSeeds({limit=20}){
   return {seeds,source:'DexScreener'};
 }
 
-/* ==== OHLCV ==== */
+/* ============ Gecko OHLCV 抽出（堅牢化） ============ */
+function extractGeckoCandles(json){
+  const attr = json?.data?.attributes || json?.data?.[0]?.attributes || {};
+  const cands = [
+    attr.candles,          // 旧/一部環境
+    attr.ohlcv_list,       // 多くの環境でこれ
+    attr.ohlcv,            // 念のため
+    attr.data              // 稀に data 配列の場合
+  ];
+  for(const a of cands){
+    if(Array.isArray(a) && a.length && Array.isArray(a[0]) && a[0].length>=5) return a;
+  }
+  return Array.isArray(cands[0]) ? cands[0] : [];
+}
+
+/* ============ OHLCV 取得 ============ */
 async function getDailyOHLCV_eth_pool(addr,{limit=120}={}){
   const wait=Math.max(0,lastGecko+GECKO_MIN_INTERVAL+geckoPenalty-Date.now()); if(wait>0)await sleep(wait+jitter());
   lastGecko=Date.now();
   for(let a=0;a<3;a++){
     try{
-      const j=await getJsonSmart(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${addr}/ohlcv/day?aggregate=1&limit=${limit}`,{label:`OHLCV ${addr.slice(0,6)}…`});
-      const arr=j?.data?.attributes?.candles||[];
+      const url=`https://api.geckoterminal.com/api/v2/networks/eth/pools/${addr}/ohlcv/day?aggregate=1&limit=${limit}`;
+      const j=await getJsonSmart(url,{label:`OHLCV ${addr.slice(0,6)}…`});
+      const arr=extractGeckoCandles(j);
       geckoPenalty=Math.max(0,geckoPenalty-100);
+      if(!arr.length){
+        const keys=Object.keys(j?.data?.attributes||{});
+        log(`OHLCV: データ0（attributes keys: ${keys.join(', ')}）`,true);
+      }
       return arr.map(x=>({ts:normTs(+x[0]),o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5]}));
     }catch(e){
       const m=String(e.message||e);
@@ -180,7 +193,7 @@ async function getDailyOHLCV_eth_pool(addr,{limit=120}={}){
   throw new Error('OHLCV: retries exhausted');
 }
 
-/* ==== スパイク検出（可変ウィンドウ + 高値/安値） ==== */
+/* ============ スパイク検出（可変ウィンドウ + 高値/安値） ============ */
 function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
   if(!ohlc?.length) return null;
   const sorted=[...ohlc].sort((a,b)=>a.ts-b.ts);
@@ -211,7 +224,7 @@ function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
   return best;
 }
 
-/* ==== Ethplorer（TopHolders） ==== */
+/* ============ Ethplorer（TopHolders） ============ */
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
 
@@ -248,7 +261,7 @@ function estimateLP(hs=[]){
   return {lp_pct_est:+(burn+lock).toFixed(2),lp_type:typ,locker_name:locker||'',burn_proof_url:bh?url(bh.address):'',locker_proof_url:lh?url(lh.address):''};
 }
 
-/* ==== Main ==== */
+/* ============ Main ============ */
 let LAST_ROWS=[]; let CANCEL=false;
 
 async function run(){
@@ -377,7 +390,7 @@ function render(rows,{strict,lpmin,showAll}){
   h+='</tbody></table>'; by('wrapTable').innerHTML=h;
 }
 
-/* ==== UI ==== */
+/* ============ UI ============ */
 by('runBtn').addEventListener('click',run);
 by('cancelBtn').addEventListener('click',()=>{CANCEL=true; by('cancelBtn').disabled=true;});
 by('csvBtn').addEventListener('click',()=>{if(!LAST_ROWS.length)return; const name=`meme_trending_eth_${Date.now()}.csv`; const out=LAST_ROWS.map(({__passes,__reason,...rest})=>rest); dl(name,toCSV(out));});
