@@ -46,7 +46,7 @@
     <div class="ctl"><label>Trending 種（上限）</label><input id="seedLimit" type="number" value="20" min="5" max="100"></div>
     <div class="ctl"><label>厳密モード</label><div><input id="strict" type="checkbox" checked> <span class="pill">days×mult と LP% フィルタを適用</span></div></div>
     <div class="ctl"><label>LP%必須</label><div><input id="lpRequired" type="checkbox" checked> <span class="pill">LP%が取れない行は除外</span></div></div>
-    <div class="ctl"><label>LP取得は倍率通過後のみ（推奨）</label><div><input id="lpAfterMult" type="checkbox" checked> <span class="pill">mult未達はEthplorerを呼ばない</span></div></div>
+    <div class="ctl"><label>LP取得は倍率通過後のみ</label><div><input id="lpAfterMult" type="checkbox" checked> <span class="pill">mult未達はEthplorerを呼ばない</span></div></div>
   </div>
 
   <div class="row" style="margin-top:8px">
@@ -89,7 +89,7 @@
 </main>
 
 <script>
-/* ===== Utils ===== */
+/* ---------- Utils ---------- */
 const by=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ts2=t=>new Date(t*1000).toLocaleString();
@@ -98,25 +98,28 @@ const jitter=(a=120,b=420)=>Math.floor(Math.random()*(b-a+1))+a;
 function log(m,e=false){const L=by('notes');const line=`[${new Date().toLocaleTimeString()}] ${m}`;L.innerHTML+=e?`<div class="err">${line}</div>`:`<div>${line}</div>`;L.scrollTop=L.scrollHeight;}
 function setBar(f){by('pbar').style.width=`${Math.max(0,Math.min(1,f))*100}%`;}
 
-/* ===== Fetch helper（ホスト別ルーティング） ===== */
+/* 秒/ミリ秒の自動正規化 */
+const normTs = t => (t>1e12?Math.floor(t/1000):t);
+
+/* ---------- Fetch helper（CORS ルーティング） ---------- */
 function buildProxiedUrl(base,url){if(!base)return url;const b=base.trim();if(/\{url\}/i.test(b))return b.replace(/\{url\}/ig,encodeURIComponent(url));if(/[\?&]url=$/i.test(b)||(/\?$/.test(b)&&/url=/.test(b)))return b+encodeURIComponent(url);if(/[\?&]url=\/$/.test(b))return b.replace(/\/$/,'')+encodeURIComponent(url);return b.replace(/\/+$/,'')+'/'+url;}
 async function _fetchJson(u,{timeout=12000,label=''}={}){const ac=new AbortController();const tid=setTimeout(()=>ac.abort('timeout'),timeout);try{if(label)log(`GET ${label}: ${u.slice(0,140)}`);const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);const ct=(r.headers.get('content-type')||'').toLowerCase();const body=ct.includes('application/json')?await r.json():JSON.parse(await r.text());clearTimeout(tid);return body;}catch(e){clearTimeout(tid);throw e;}}
 async function getJsonSmart(url,{label='',timeout=12000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();let bases;if(h.includes('geckoterminal.com')||h.includes('dexscreener.com'))bases=['','https://cors.isomorphic-git.org/'];else if(h.includes('ethplorer.io'))bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];else bases=['','https://cors.isomorphic-git.org/'];let last;for(const b of bases){const u=buildProxiedUrl(b,url);try{return await _fetchJson(u,{timeout,label});}catch(e){last=e;log(`…via ${b||'DIRECT'} failed: ${e.message||e}`,true);}}throw last;}
 
-/* ===== CSV ===== */
+/* ---------- CSV ---------- */
 function toCSV(rows){const esc=v=>v==null?'':/[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:String(v);const head=Object.keys(rows[0]||{});const out=[head.map(esc).join(',')];for(const r of rows)out.push(head.map(k=>esc(r[k])).join(','));return out.join('\n');}
 function dl(name,text){const blob=new Blob([text],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);}
 
-/* ===== 時刻 ===== */
+/* ---------- 時刻 ---------- */
 function dateToStartUnix(s){if(!s)return null;const d=new Date(s+'T00:00:00');return Math.floor(d.getTime()/1000);}
 function dateToEndUnix(s){if(!s)return null;const d=new Date(s+'T23:59:59');return Math.floor(d.getTime()/1000)+1;}
 function datePrefToUnix(){let s=dateToStartUnix(by('dateStart').value);let e=dateToEndUnix(by('dateEnd').value);if(by('startTs').value)s=+by('startTs').value;if(by('endTs').value)e=+by('endTs').value;return {startTs:s,endTs:e};}
 
-/* ===== レート制御 ===== */
+/* ---------- レート制御 ---------- */
 let lastEth=0,lastGecko=0,geckoPenalty=0;
 const ETHPLORER_MIN_INTERVAL=2800; let GECKO_MIN_INTERVAL=700;
 
-/* ===== トレンド ===== */
+/* ---------- トレンド ---------- */
 async function getTrendingSeeds({limit=20}){
   try{
     const j=await getJsonSmart('https://api.geckoterminal.com/api/v2/networks/eth/trending_pools?page=1',{label:'Gecko trending'});
@@ -130,21 +133,30 @@ async function getTrendingSeeds({limit=20}){
   return {seeds,source:'DexScreener'};
 }
 
-/* ===== OHLCV ===== */
+/* ---------- OHLCV ---------- */
 async function getDailyOHLCV_eth_pool(addr,{limit=120}={}){
   const wait=Math.max(0,lastGecko+GECKO_MIN_INTERVAL+geckoPenalty-Date.now()); if(wait>0)await sleep(wait+jitter());
   lastGecko=Date.now();
   for(let a=0;a<3;a++){
     try{
       const j=await getJsonSmart(`https://api.geckoterminal.com/api/v2/networks/eth/pools/${addr}/ohlcv/day?aggregate=1&limit=${limit}`,{label:`OHLCV ${addr.slice(0,6)}…`});
-      const arr=j?.data?.attributes?.candles||[]; geckoPenalty=Math.max(0,geckoPenalty-100);
-      return arr.map(x=>({ts:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5]}));
-    }catch(e){const m=String(e.message||e); if(m.includes('429')){geckoPenalty=Math.min(3000,geckoPenalty+600); await sleep(1500+a*800); continue;} throw e;}
+      const arr=j?.data?.attributes?.candles||[];
+      geckoPenalty=Math.max(0,geckoPenalty-100);
+      // 秒/ミリ秒を正規化して返す
+      return arr.map(x=>{
+        const rawTs=+x[0]; const ts=normTs(rawTs);
+        return {ts, o:+x[1], h:+x[2], l:+x[3], c:+x[4], v:+x[5]};
+      });
+    }catch(e){
+      const m=String(e.message||e);
+      if(m.includes('429')){geckoPenalty=Math.min(3000,geckoPenalty+600); await sleep(1500+a*800); continue;}
+      throw e;
+    }
   }
   throw new Error('OHLCV: retries exhausted');
 }
 
-/* ★ 可変ウィンドウ：ピークは期間内、最安は期間外OK。高値/安値も考慮 */
+/* ---------- スパイク検出（可変ウィンドウ + 高値/安値考慮） ---------- */
 function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
   if(!ohlc?.length) return null;
   const sorted=[...ohlc].sort((a,b)=>a.ts-b.ts);
@@ -156,7 +168,6 @@ function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
     if(startTs && p.ts<startTs) continue;
     if(endTs && p.ts>endTs) continue;
 
-    // 直前に存在するローソク本数で可変（最低2）
     let j=i-1; if(j<0) continue;
     const lookbackTs=p.ts-windowDays*DAY;
     let minPrice=Infinity, minCandle=null;
@@ -171,12 +182,15 @@ function bestSpikeFlexible(ohlc, windowDays, startTs, endTs){
     if(!(peakPrice>0) || !(minPrice>0)) continue;
 
     const mult=peakPrice/minPrice;
-    if(mult>bestMult){ bestMult=mult; best={ peak_ts:p.ts, peak_close:p.c, peak_high:p.h, pre_min_ts:minCandle.ts, pre_min_close:minCandle.c, pre_min_low:minCandle.l, multiple_14d:mult, bars:N }; }
+    if(mult>bestMult){
+      bestMult=mult;
+      best={ peak_ts:p.ts, pre_min_ts:minCandle.ts, multiple_14d:mult };
+    }
   }
   return best;
 }
 
-/* ===== Ethplorer（TopHolders） ===== */
+/* ---------- Ethplorer（TopHolders） ---------- */
 const KNOWN_BURN_ADDRS=new Set(['0x0000000000000000000000000000000000000000','0x000000000000000000000000000000000000dead','0x000000000000000000000000000000000000dEaD']);
 const LOCKER_HINTS=['unicrypt','team','pink','gempad','dxsale','mudra','safelock','bloxlock','trustswap','pinksale','deeplock','cryptex'];
 
@@ -188,7 +202,12 @@ async function getTopHolders_lp(addr,{apiKey='freekey'}={}){
     lastEth=Date.now();
     const url=build(`getTopTokenHolders/${addr}?apiKey=${encodeURIComponent(apiKey)}&limit=50`);
     try{const j=await _fetchJson(url,{label:`TopHolders ${addr.slice(0,6)}…`}); return j?.holders||[];}
-    catch(e){const m=String(e.message||e); if(m.includes('429')){await sleep(2200+k*600); continue;} if(m.includes('400')||m.includes('406')||m.includes('Load failed')||m.includes('timeout')||m.includes('Failed to fetch')){await sleep(1400+k*500); continue;} throw e;}
+    catch(e){
+      const m=String(e.message||e);
+      if(m.includes('429')){await sleep(2200+k*600); continue;}
+      if(m.includes('400')||m.includes('406')||m.includes('Load failed')||m.includes('timeout')||m.includes('Failed to fetch')){await sleep(1400+k*500); continue;}
+      throw e;
+    }
   }
   throw new Error('TopHolders: retries exhausted');
 }
@@ -207,7 +226,7 @@ function estimateLP(hs=[]){
   return {lp_pct_est:+(burn+lock).toFixed(2),lp_type:typ,locker_name:locker||'',burn_proof_url:bh?url(bh.address):'',locker_proof_url:lh?url(lh.address):''};
 }
 
-/* ===== Main ===== */
+/* ---------- Main ---------- */
 let LAST_ROWS=[]; let CANCEL=false;
 
 async function run(){
@@ -220,7 +239,6 @@ async function run(){
   const ethKey=(by('ethKey')?.value||'freekey').trim();
   const {startTs,endTs}=datePrefToUnix();
 
-  // 期間＋days＋バッファ（最新からN本取得仕様）
   let ohlcLimit=120;
   if(startTs&&endTs&&endTs>startTs){
     const span=Math.ceil((endTs-startTs)/86400);
@@ -249,15 +267,17 @@ async function run(){
       log(`OHLCV/LP 取得: ${s.poolAddress}`); setBar(done/seedArr.length);
 
       let candles=[];
-      try{candles=await getDailyOHLCV_eth_pool(s.poolAddress,{limit:ohlcLimit}); ohlcvOk++; }
-      catch(e){log(`OHLCV失敗: ${e.message||e}`,true); ohlcvFail++;}
-
-      // データ本数を出しておく
-      log(`ローソク本数: ${candles.length}`);
+      try{
+        candles=await getDailyOHLCV_eth_pool(s.poolAddress,{limit:ohlcLimit}); 
+        ohlcvOk++;
+        if(candles.length){
+          log(`ローソク本数: ${candles.length}｜最古: ${ts2(candles[0].ts)}｜最新: ${ts2(candles[candles.length-1].ts)}`);
+        }
+      }catch(e){log(`OHLCV失敗: ${e.message||e}`,true); ohlcvFail++;}
 
       const spike=bestSpikeFlexible(candles,days,startTs,endTs);
       const multV=spike?.multiple_14d||null;
-      if(spike){log(`倍率サマリ: best×${fmt(multV)} at ${spike.peak_ts?new Date(spike.peak_ts*1000).toLocaleDateString():''}`);}
+      if(spike){log(`倍率サマリ: best×${fmt(multV)} at ${ts2(spike.peak_ts)}（min: ${ts2(spike.pre_min_ts)}）`);}
       else{log('倍率サマリ: 有効な上昇なし/データ不足');}
 
       let lpInfo={lp_pct_est:null,lp_type:'unknown',locker_name:'',burn_proof_url:'',locker_proof_url:''};
@@ -277,7 +297,7 @@ async function run(){
       rows.push({
         token_pool:s.name||(s.base&&s.quote?`${s.base}/${s.quote}`:''), address:s.poolAddress,
         multiple_14d_close:multV?fmt(multV):'',
-        peak_ts:spike?.peak_ts||'', pre14_min_ts:spike?.pre_min_ts||spike?.pre_min_ts||'',
+        peak_ts:spike?.peak_ts||'', pre14_min_ts:spike?.pre_min_ts||'',
         lp_pct_est:lpInfo.lp_pct_est??'', lp_type:lpInfo.lp_type, locker_name:lpInfo.locker_name||'',
         dex_url:`https://dexscreener.com/ethereum/${s.poolAddress}`,
         gecko_ohlcv_url:`https://api.geckoterminal.com/api/v2/networks/eth/pools/${s.poolAddress}/ohlcv/day?aggregate=1&limit=${ohlcLimit}`,
@@ -328,7 +348,7 @@ function render(rows,{strict,lpmin}){
   h+='</tbody></table>'; by('wrapTable').innerHTML=h;
 }
 
-/* ===== UI ===== */
+/* ---------- UI ---------- */
 by('runBtn').addEventListener('click',run);
 by('cancelBtn').addEventListener('click',()=>{CANCEL=true; by('cancelBtn').disabled=true;});
 by('csvBtn').addEventListener('click',()=>{if(!LAST_ROWS.length)return; const name=`meme_trending_eth_${Date.now()}.csv`; const out=LAST_ROWS.map(({__passes,__reason,...rest})=>rest); dl(name,toCSV(out));});
