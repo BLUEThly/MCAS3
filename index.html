@@ -33,7 +33,7 @@
   .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
   .bar{height:8px;background:#0a1a38;border:1px solid #1f2b45;border-radius:999px;overflow:hidden}
   .bar>div{height:100%;width:0;background:#2563eb;transition:width .2s}
-  .hint{font-size:12px;color:#9ca3af}
+  .hint{font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -56,9 +56,16 @@
   <div class="row" style="margin-top:8px">
     <div class="ctl"><label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date"></div>
     <div class="ctl"><label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date"></div>
-    <div class="ctl" style="min-width:260px"><label>（任意）CORS プロキシ（Ethplorer/Gecko 用）</label><input id="cors" value="https://cors-proxy.anchobi975.workers.dev/?url="></div>
-    <div class="ctl" style="min-width:260px"><label>（推奨）Trends API（/series か ?url= のどちらか）</label><input id="trendsApi" value="https://cors-trends.anchobi975.workers.dev/?url="></div>
+
+    <!-- 既定値を最初から注入（あなたのWorkers） -->
+    <div class="ctl" style="min-width:260px"><label>（任意）CORS プロキシ（Ethplorer/Gecko 用）</label>
+      <input id="cors" value="https://cors-proxy.anchobi975.workers.dev/?url=">
+    </div>
+    <div class="ctl" style="min-width:260px"><label>（推奨）Trends API（あなたの /series のURL）</label>
+      <input id="trApi" value="https://cors-trends.anchobi975.workers.dev/series">
+    </div>
     <div class="ctl" style="min-width:220px"><label>（任意）Ethplorer API key</label><input id="ethKey" placeholder="未入力なら freekey を使用"></div>
+
     <div class="ctl">
       <label>&nbsp;</label>
       <div style="display:flex;gap:8px">
@@ -133,6 +140,15 @@ const jitter=(a=120,b=420)=>Math.floor(Math.random()*(b-a+1))+a;
 const normTs=t=> (t>1e12?Math.floor(t/1000):t);
 function log(m,e=false){const L=by('notes');const line=`[${new Date().toLocaleTimeString()}] ${m}`;L.innerHTML+=e?`<div class="err">${line}</div>`:`<div>${line}</div>`;L.scrollTop=L.scrollHeight;}
 function setBar(f){by('pbar').style.width=`${Math.max(0,Math.min(1,f))*100}%`;}
+const pad2=n=>String(n).padStart(2,'0');
+const ymdUTC=ts=>{const d=new Date(ts*1000);return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())}`;};
+
+/* ============ 既定値の最終確認 ============ */
+(function ensureDefaults(){
+  const cors=by('cors'); const tr=by('trApi');
+  if(!cors.value) cors.value='https://cors-proxy.anchobi975.workers.dev/?url=';
+  if(!tr.value) tr.value='https://cors-trends.anchobi975.workers.dev/series';
+})();
 
 /* ============ Fetch helper（CORS ルーティング） ============ */
 function buildProxiedUrl(base,url){
@@ -143,8 +159,8 @@ function buildProxiedUrl(base,url){
   if(/[\?&]url=\/$/.test(b)) return b.replace(/\/$/,'')+encodeURIComponent(url);
   return b.replace(/\/+$/,'')+'/'+url;
 }
-async function _fetchJson(u,{timeout=14000,label=''}={}){const ac=new AbortController();const tid=setTimeout(()=>ac.abort('timeout'),timeout);try{if(label)log(`GET ${label}: ${u.slice(0,140)}`);const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);const ct=(r.headers.get('content-type')||'').toLowerCase();const body=ct.includes('application/json')?await r.json():JSON.parse(await r.text());clearTimeout(tid);return body;}catch(e){clearTimeout(tid);throw e;}}
-async function getJsonSmart(url,{label='',timeout=14000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();
+async function _fetchJson(u,{timeout=16000,label=''}={}){const ac=new AbortController();const tid=setTimeout(()=>ac.abort('timeout'),timeout);try{if(label)log(`GET ${label}: ${u.slice(0,140)}`);const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);const ct=(r.headers.get('content-type')||'').toLowerCase();const body=ct.includes('application/json')?await r.json():JSON.parse(await r.text());clearTimeout(tid);return body;}catch(e){clearTimeout(tid);throw e;}}
+async function getJsonSmart(url,{label='',timeout=16000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();
   let bases;
   if(h.includes('geckoterminal.com')||h.includes('dexscreener.com')) bases=['','https://cors.isomorphic-git.org/'];
   else if(h.includes('ethplorer.io')||h.includes('trends.google.com')) bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
@@ -267,7 +283,7 @@ async function getTopHolders_lp(tokenAddr,{apiKey='freekey'}={}) {
     lastEth = Date.now();
 
     try {
-      const json = await getJsonSmart(baseUrl, { label: `TopHolders ${tokenAddr.slice(0,6)}…`, timeout: 14000 });
+      const json = await getJsonSmart(baseUrl, { label: `TopHolders ${tokenAddr.slice(0,6)}…`, timeout: 16000 });
       const holders = json?.holders || [];
       return holders;
     } catch (e) {
@@ -298,83 +314,115 @@ function estimateLP(hs=[]){
   return {lp_pct_est:+(burn+lock).toFixed(2),lp_type:typ,locker_name:locker||''};
 }
 
-/* ============ Google Trends（堅牢化版） ============ */
-const UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+/* ============ Google Trends ============ */
+/* 1) まずあなたの /series ワーカーを叩く → 2) 失敗時のみ Google 直（ロケール/geo/kwフォールバック） */
 function stripXSSI(s){ return typeof s==='string' && s.startsWith(")]}',") ? s.slice(5) : s; }
-function fmtDateUTC(d){const y=d.getUTCFullYear(),m=String(d.getUTCMonth()+1).padStart(2,'0'),da=String(d.getUTCDate()).padStart(2,'0');return `${y}-${m}-${da}`;}
-function pickTsWidget(widgets=[]){
-  const U=s=>String(s||'').toUpperCase();
-  return widgets.find(w=>U(w.type)==='TIMESERIES' || U(w.id)==='TIMESERIES')
-      || widgets.find(w=>U(w.id).includes('TIMESERIES'))
-      || widgets.find(w=>/TIMESERIES|MULTILINE|LINE/.test(U(w.type)))
-      || null;
+
+/* ---- 直取り用（Explore → widget → Multiline） ---- */
+function trendsExploreReq({kw,geo,time,hl='ja',tz=0}){
+  const req={comparisonItem:[{keyword:kw,geo:geo||'',time}],category:0,property:''};
+  return `https://trends.google.com/trends/api/explore?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${encodeURIComponent(JSON.stringify(req))}`;
+}
+function pickTimelineWidget(exp){
+  const ws = exp?.widgets || [];
+  // 取りこぼし防止：id/type のいずれかに候補語を含むものを優先
+  const want = w=>{
+    const id=(w?.id||'').toString().toUpperCase();
+    const tp=(w?.type||'').toString().toUpperCase();
+    return /TIMESERIES|TIMELINE|MULTILINE/.test(id) || /TIMESERIES|TIMELINE|MULTILINE/.test(tp);
+  };
+  return ws.find(w=>want(w)) || null;
+}
+async function getTrendsDirect({kw,geo,startTs,endTs,hl='ja',tz=0}){
+  const s=ymdUTC(startTs), e=ymdUTC(endTs-1);
+  const time=`${s} ${e}`;
+
+  // explore
+  const exUrl=trendsExploreReq({kw,geo,time,hl,tz});
+  const exRaw=await getJsonSmart(exUrl,{label:`Trends explore ${kw} (${hl}/${geo||'GL'})`}).catch(async e=>{
+    // プロキシ差し替えの再試行
+    const user=by('cors').value.trim();
+    const proxies=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
+    let last=e;
+    for(const b of proxies){
+      try{
+        const r=await fetch(buildProxiedUrl(b,exUrl));
+        const t=await r.text();
+        return JSON.parse(stripXSSI(t));
+      }catch(err){ last=err; }
+    }
+    throw last;
+  });
+  const explore=exRaw?.widgets?exRaw:JSON.parse(stripXSSI(exRaw));
+  const widget=pickTimelineWidget(explore);
+  if(!widget) throw new Error('Load failed');
+
+  const req=encodeURIComponent(JSON.stringify(widget.request));
+  const token=encodeURIComponent(widget.token);
+  const mlUrl=`https://trends.google.com/trends/api/widgetdata/multiline?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${req}&token=${token}`;
+
+  // data
+  const dataRaw=await getJsonSmart(mlUrl,{label:`Trends data ${kw} (${hl}/${geo||'GL'})`}).catch(async e=>{
+    const user=by('cors').value.trim();
+    const proxies=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
+    let last=e;
+    for(const b of proxies){
+      try{
+        const r=await fetch(buildProxiedUrl(b,mlUrl)); const t=await r.text();
+        return JSON.parse(stripXSSI(t));
+      }catch(err){ last=err; }
+    }
+    throw last;
+  });
+
+  const series=((dataRaw?.default?.timelineData)||[]).map(d=>({ts:+d.time, v:+(d.value?.[0]??0)}));
+  if(!series.length) throw new Error('Load failed');
+  return series;
 }
 
-async function getTrendsSeries({kw,geo,startTs,endTs,hl='ja-JP',tz=0}){
-  const apiBase=(by('trendsApi')?.value||'').trim();
-  const start=new Date(startTs*1000), end=new Date((endTs-1)*1000);
-  const time=`${fmtDateUTC(start)} ${fmtDateUTC(end)}`;
-
-  // 1) /series Worker が設定されている場合は優先（?url= を含まない && /series で終わる or ルート）
-  async function trySeriesWorker(_hl,_geo){
-    if(!apiBase || apiBase.includes('?url=')) return null;
-    const base=apiBase.replace(/\/+$/,'');
-    const u=`${base}${/\/series$/.test(base)?'':'/series'}?kw=${encodeURIComponent(kw)}&geo=${encodeURIComponent(_geo||'')}&hl=${encodeURIComponent(_hl)}&start=${fmtDateUTC(start)}&end=${fmtDateUTC(end)}&tz=${encodeURIComponent(tz)}`;
-    log(`GET Series(worker): ${u}`);
-    const r=await fetch(u,{headers:{'accept':'application/json'}});
-    if(!r.ok) throw new Error(`Series(worker) HTTP ${r.status}`);
-    const j=await r.json();
-    if(Array.isArray(j.points)) return j.points.map(p=>({ts:Math.floor(p.ts/1000),v:+p.value}));
-    // 互換（data.default.timelineData がある場合）
-    const t=j?.data?.default?.timelineData||[];
-    if(t.length) return t.map(d=>({ts:+d.time,v:+(d.value?.[0]??0)}));
-    throw new Error('Series(worker) invalid payload');
-  }
-
-  // 2) Google本体（explore→multiline）を ?url= プロキシ経由で
-  async function tryTrendsExplore(_hl,_geo){
-    const reqBody={comparisonItem:[{keyword:kw,geo:_geo||'',time}],category:0,property:''};
-    const explore=`https://trends.google.com/trends/api/explore?hl=${encodeURIComponent(_hl)}&tz=${encodeURIComponent(tz)}&req=${encodeURIComponent(JSON.stringify(reqBody))}`;
-    const eUrl = apiBase && apiBase.includes('?url=') ? buildProxiedUrl(apiBase, explore) : explore;
-    log(`GET Trends explore ${kw} (${_hl}/${_geo||'GL'}): ${eUrl}`);
-    const eRes=await fetch(eUrl,{headers:{'user-agent':UA}});
-    if(!eRes.ok) throw new Error(`explore HTTP ${eRes.status}`);
-    const exp=JSON.parse(stripXSSI(await eRes.text()));
-    const w=pickTsWidget(exp?.widgets||[]);
-    if(!w) throw new Error('TIMESERIES widget not found');
-    const data=`https://trends.google.com/trends/api/widgetdata/multiline?hl=${encodeURIComponent(_hl)}&tz=${encodeURIComponent(tz)}&req=${encodeURIComponent(JSON.stringify(w.request))}&token=${encodeURIComponent(w.token)}`;
-    const dUrl = apiBase && apiBase.includes('?url=') ? buildProxiedUrl(apiBase, data) : data;
-    const dRes=await fetch(dUrl,{headers:{'user-agent':UA}});
-    if(!dRes.ok) throw new Error(`multiline HTTP ${dRes.status}`);
-    const dj=JSON.parse(stripXSSI(await dRes.text()));
-    const series=(dj?.default?.timelineData||[]).map(d=>({ts:+d.time,v:+(d.value?.[0]??0)}));
-    return series;
-  }
-
-  // 少数フォールバック（最大3回）
-  const combos=[
-    {hl:hl||'ja-JP', geo},
-    {hl:'en-US', geo},
-    {hl:'en-US', geo:''},
+/* ---- 総合（Worker優先 + フォールバック） ---- */
+async function getTrendsSeriesSmart({kw,geo,startTs,endTs}){
+  const trBase=(by('trApi')?.value||'').trim().replace(/\/+$/,'');
+  const s=ymdUTC(startTs), e=ymdUTC(endTs-1);
+  const kwCandidates = Array.from(new Set([kw, kw.replace(/\s+crypto\b/i,'')].filter(Boolean)));
+  const localePlan = [
+    {hl:'ja', geo},           // ja/指定geo
+    {hl:'en-US', geo},        // en/指定geo
+    {hl:'ja', geo:''},        // ja/GL
+    {hl:'en-US', geo:''},     // en/GL
   ];
 
-  for(const c of combos){
-    // まず series-worker
-    try{
-      const s=await trySeriesWorker(c.hl,c.geo);
-      if(s && s.length){ log(`Trends OK via Series(worker) ${c.hl}/${c.geo||'GL'}: ${kw} (${s.length})`); return s; }
-    }catch(e){ log(`Series(worker) failed ${c.hl}/${c.geo||'GL'}: ${e.message||e}`,true); }
-
-    // 次に explore→multiline
-    try{
-      const s=await tryTrendsExplore(c.hl,c.geo);
-      if(s && s.length){ log(`Trends OK via Explore ${c.hl}/${c.geo||'GL'}: ${kw} (${s.length})`); return s; }
-    }catch(e){ log(`Trends失敗: ${kw} (${c.hl}/${c.geo||'GL'}) ${e.message||e}`,true); }
+  // 1) あなたの Worker (/series) を最優先（キーワード候補も順番に試す）
+  if(trBase){
+    for(const kw1 of kwCandidates){
+      try{
+        const url=`${trBase}/?kw=${encodeURIComponent(kw1)}&geo=${encodeURIComponent(geo||'')}&hl=ja&start=${s}&end=${e}&tz=0`;
+        const j=await _fetchJson(url,{label:'Series(worker)',timeout:16000});
+        const pts = Array.isArray(j?.points) ? j.points : (j?.data?.default?.timelineData ? j.data.default.timelineData.map(d=>({ts:+d.time*1000,value:+(d.value?.[0]??0)})) : []);
+        if(pts && pts.length){
+          return pts.map(p=>({ts:Math.floor((p.ts||0)/1000), v:+(p.value??0)}));
+        }
+        // 500や構造不一致はフォールバックへ
+      }catch(e){ log(`Series(worker) failed: ${e.message||e}`, true); }
+    }
   }
-  throw new Error('Trends: all attempts failed');
+
+  // 2) 直取得（ロケール×geo の総当たり）
+  for(const kw1 of kwCandidates){
+    for(const loc of localePlan){
+      try{
+        const arr=await getTrendsDirect({kw:kw1,geo:loc.geo,hl:loc.hl,startTs,endTs,tz:0});
+        if(arr?.length) return arr;
+      }catch(e){
+        // ログは短く
+        log(`Trends: ${kw1} (${loc.hl}/${loc.geo||'GL'}) Load failed`, true);
+      }
+      await sleep(250); // 連続アクセスの肩叩き
+    }
+  }
+  throw new Error('all attempts failed');
 }
 
-/* マップ・相関ユーティリティ */
 function seriesToMapDaily(arr){const m=new Map(); for(const x of arr){ const d=new Date(x.ts*1000); const k=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; m.set(k,+x.v); } return m;}
 function ohlcToMapClose(arr){const m=new Map(); for(const x of arr){ const d=new Date(x.ts*1000); const k=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; m.set(k,+x.c); } return m;}
 function toReturns(vals){const out=[]; for(let i=1;i<vals.length;i++){ const a=vals[i-1], b=vals[i]; if(a>0 && b>0){ out.push((b/a-1)*100); } } return out;}
@@ -400,7 +448,8 @@ function pearson(xs,ys){
 }
 
 /* ============ Main ============ */
-let LAST_ROWS=[]; let CANCEL=false; let CACHE_OHLCV=new Map(); // poolAddr -> candles
+let LAST_ROWS=[]; let CANCEL=false; let CACHE_OHLCV=new Map();
+
 async function run(){
   CANCEL=false; by('cancelBtn').disabled=false;
   by('csvBtn').disabled=true; by('corrBtn').disabled=true; by('wrapTable').innerHTML=''; by('notes').innerHTML='';
@@ -420,7 +469,7 @@ async function run(){
   by('params').textContent=[
     `Params: days=${days}, mult=${mult}, LP>=${lpmin}%, lpRequired=${lpRequired}, showAll=${showAll}`,
     `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`,
-    `Trends API: ${(by('trendsApi')?.value||'').trim()}`
+    `Trends API: ${by('trApi').value||'(none)'}`
   ].join('\n');
 
   try{
@@ -441,7 +490,7 @@ async function run(){
 
       let candles=[];
       try{
-        candles=await getDailyOHLCV_eth_pool(s.poolAddress,{limit:ohlcLimit});
+        candles=await getDailyOHLCV_eth_pool(s.poolAddress,{limit:ohlcvLimit});
         CACHE_OHLCV.set(s.poolAddress, candles);
         ohlcvOk++;
         log(`ローソク本数: ${candles.length}｜最古: ${candles[0]?ts2(candles[0].ts):'-'}｜最新: ${candles[candles.length-1]?ts2(candles[candles.length-1].ts):'-'}`);
@@ -470,6 +519,7 @@ async function run(){
         if(lpRequired && !(lpInfo.lp_pct_est!=null && lpInfo.lp_pct_est>=lpmin)){ passes=false; reason.push('lp'); }
       }
 
+      // トレンドの既定キーワード
       const baseSym = (s.baseSymbol || (s.name||'').split('/')[0] || '').trim();
       const trendKw = baseSym ? `${baseSym} crypto` : '';
 
@@ -518,7 +568,8 @@ async function runCorrelation(){
       const priceMap=ohlcToMapClose(candles);
       const dates=[]; for(let t=startTs;t<endTs;t+=86400){ const d=new Date(t*1000); dates.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`); }
 
-      const trSeries=await getTrendsSeries({kw:r.trend_kw,geo,startTs,endTs,hl:'ja-JP',tz:0});
+      // ★改：Worker優先 + 直取りフォールバック + キーワード/ロケール切替
+      const trSeries=await getTrendsSeriesSmart({kw:r.trend_kw,geo,startTs,endTs});
       const trendMap=seriesToMapDaily(trSeries);
 
       let px=[], tv=[];
@@ -554,6 +605,7 @@ async function runCorrelation(){
     }catch(e){
       log(`Trends取得失敗: ${r.trend_kw}｜${e.message||e}`,true);
     }
+    await sleep(180); // 軽い肩叩き
   }
   render(LAST_ROWS,{strict:by('strict').checked,lpmin:+by('lpmin').value||80,showAll:by('showAll').checked});
   by('progress').textContent='相関計算 完了';
