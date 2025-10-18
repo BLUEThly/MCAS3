@@ -40,6 +40,7 @@
 <header>
   <h1>ミームコイン自動スクリーニング（ETH）— 厳密モード＋カレンダー期間＋Googleトレンド相関</h1>
 
+  <!-- 基本パラメータ -->
   <div class="row">
     <div class="ctl"><label>days（急騰検出の直近日数）</label><input id="days" type="number" value="14" min="2" max="60"></div>
     <div class="ctl"><label>mult（ピーク/直前minの倍率）</label><input id="mult" type="number" value="3" min="1.001" step="0.001"></div>
@@ -51,12 +52,13 @@
     <div class="ctl"><label>表示</label><div><input id="showAll" type="checkbox" checked> <span class="pill">全件表示（しきい値未達も出す）</span></div></div>
   </div>
 
+  <!-- 期間 & CORS & Trends API -->
   <div class="row" style="margin-top:8px">
     <div class="ctl"><label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date"></div>
     <div class="ctl"><label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date"></div>
-    <!-- ご指定の既定値 -->
+    <!-- 既定値をプリセット -->
     <div class="ctl" style="min-width:260px"><label>（任意）CORS プロキシ（Ethplorer/Gecko 用）</label><input id="cors" value="https://cors-proxy.anchobi975.workers.dev/?url="></div>
-    <div class="ctl" style="min-width:320px"><label>（推奨）Trends API（/series または プロキシBase）</label><input id="trApi" value="https://cors-trends.anchobi975.workers.dev/?url="></div>
+    <div class="ctl" style="min-width:320px"><label>（推奨）Trends API（/series でも /?url= でもOK）</label><input id="trApi" value="https://cors-trends.anchobi975.workers.dev/?url="></div>
     <div class="ctl" style="min-width:220px"><label>（任意）Ethplorer API key</label><input id="ethKey" placeholder="未入力なら freekey を使用"></div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -76,6 +78,7 @@
     </div>
   </details>
 
+  <!-- Googleトレンド相関 -->
   <div style="margin-top:14px"></div>
   <div class="row">
     <div class="ctl"><label>相関：地域（geo）</label>
@@ -285,54 +288,45 @@ function estimateLP(hs=[]){
 /* ===== Google Trends ===== */
 function stripXSSI(s){ return typeof s==='string' && s.startsWith(")]}',") ? s.slice(5) : s; }
 
-/* Widgetの取り方を強化 */
+/* Widgetの取り方をさらに強化 */
 function pickTsWidget(exp){
   const ws = Array.isArray(exp?.widgets) ? exp.widgets : [];
-  const hit =
-    ws.find(w => /TIMESERIES/i.test(String(w?.id)) || /TIMESERIES/i.test(String(w?.type))) ||
-    ws.find(w => /LINE/i.test(String(w?.type)) || /MULTI/i.test(String(w?.type))) ||
+  const byId = ws.find(w => /TIMESERIES/i.test(String(w?.id))) ||
+               ws.find(w => /TIMESERIES/i.test(String(w?.type)));
+  const fallback =
+    ws.find(w => /LINE|MULTI/i.test(String(w?.type))) ||
     ws.find(w => w?.request?.time && w?.request?.comparisonItem);
+  const hit = byId || fallback;
   return hit && hit.token && hit.request ? hit : null;
 }
 
-/* /explore を text として取得→パース。複数言語でトライ */
-async function getExplore(kw, geo, time, {hl='ja', tz=0, proxies=[]}={}){
-  const base = 'https://trends.google.com/trends/api';
-  const req = { comparisonItem:[{keyword:kw, geo:geo||'', time}], category:0, property:'' };
-  const url = `${base}/explore?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${encodeURIComponent(JSON.stringify(req))}`;
-
-  const fetchTextVia = async (url,label)=>{
-    let last;
-    for(const b of proxies){
-      try{
-        const u=buildProxiedUrl(b,url);
-        log(`GET ${label}: ${u.slice(0,140)}`);
-        const r=await fetch(u);
-        const t=await r.text();
-        if(!r.ok){ last=new Error(`HTTP ${r.status}`); continue; }
-        if(/^\s*</.test(t)){ last=new Error('HTML response'); continue; }
-        return t;
-      }catch(e){ last=e; log(`…via ${b||'DIRECT'} failed: ${e.message||e}`,true); }
-    }
-    throw last||new Error('All proxies failed');
-  };
-
-  const txt = await fetchTextVia(url, `Trends explore ${kw}`);
-  try{
-    return JSON.parse(stripXSSI(txt));
-  }catch(e){
-    throw new Error('Explore JSON parse failed');
+/* /explore を text として取得→パース。 */
+async function getExploreViaProxies(url,label,proxies){
+  let last;
+  for(const b of proxies){
+    try{
+      const u=buildProxiedUrl(b,url);
+      log(`GET ${label}: ${u.slice(0,140)}`);
+      const r=await fetch(u);
+      const t=await r.text();
+      if(!r.ok){ last=new Error(`HTTP ${r.status}`); continue; }
+      if(/^\s*</.test(t)){ last=new Error('HTML response'); continue; }
+      return JSON.parse(stripXSSI(t));
+    }catch(e){ last=e; log(`…via ${b||'DIRECT'} failed: ${e.message||e}`,true); }
   }
+  throw last||new Error('All proxies failed');
 }
 
-/* Trends: Worker(/series)優先 → プロキシ直叩き。Widget検出を強化し言語フォールバック */
+/* Trends: Worker(/series)優先 → 直叩き（多段フォールバック） */
 async function getTrendsSeries({kw,geo,startTs,endTs,hl='ja',tz=0}){
   const wait=Math.max(0,lastTr+TRENDS_MIN_INTERVAL-Date.now()); if(wait>0) await sleep(wait + jitter(80,260));
   lastTr=Date.now();
 
   const trCfg=(by('trApi').value||'').trim();
+  const user=by('cors').value.trim();
+  const proxies=[ trCfg.includes('?url=')?trCfg:'', user||'', 'https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url=' ].filter(Boolean);
 
-  // 1) /series Worker が入っていれば最優先
+  // 1) /series Worker 明示指定なら最優先
   if (/\/(series|timeseries)\b/.test(trCfg)) {
     try{
       const base = new URL(trCfg);
@@ -353,35 +347,46 @@ async function getTrendsSeries({kw,geo,startTs,endTs,hl='ja',tz=0}){
     }catch(e){ log(`Trends(workers) 失敗 → フォールバック: ${e.message||e}`, true); }
   }
 
-  // 2) 直叩き
+  // 2) 直叩き: kw×hl×geo フォールバック総当たり
   const ymd = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
   const time = `${ymd(new Date(startTs*1000))} ${ymd(new Date((endTs-1)*1000))}`;
-
-  const user=by('cors').value.trim();
-  const firstProxy = trCfg && !/\/(series|timeseries)\b/.test(trCfg) ? trCfg : '';
-  const proxies=[firstProxy, user||'', 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url='].filter(Boolean);
-
-  // hl=ja → 見つからなければ en-US
-  let exp=null, widget=null, langTried=[];
-  for (const lang of [hl,'en-US']) {
-    try{
-      exp = await getExplore(kw, geo, time, {hl:lang, tz, proxies});
-      widget = pickTsWidget(exp);
-      langTried.push(lang);
-      if (widget) { hl = lang; break; }
-    }catch(e){ log(`Explore(${lang}) 失敗: ${e.message||e}`, true); }
-  }
-  if (!widget) throw new Error(`TIMESERIES widget not found`);
-
   const base='https://trends.google.com/trends/api';
-  const mlURL = `${base}/widgetdata/multiline?hl=${encodeURIComponent(hl)}&tz=${tz}&token=${encodeURIComponent(widget.token)}&req=${encodeURIComponent(JSON.stringify(widget.request))}`;
 
-  // text→XSSI除去→JSON
+  const kwSans = kw.replace(/\s+(crypto|token)\b/i,'').trim() || kw; // "SPX crypto" → "SPX"
+  const kwVariants = Array.from(new Set([kw, kwSans]));
+  const langVariants = ['ja','en-US','en'];
+  const geoVariants = [geo || '', '']; // geo='' を必ず試す
+
+  let selected=null, foundMeta=null;
+
+  for (const k of kwVariants){
+    for (const lang of langVariants){
+      for (const g of geoVariants){
+        const exploreURL = `${base}/explore?hl=${encodeURIComponent(lang)}&tz=${tz}&req=${encodeURIComponent(JSON.stringify({comparisonItem:[{keyword:k,geo:g,time}],category:0,property:''}))}`;
+        try{
+          const exp = await getExploreViaProxies(exploreURL, `Trends explore ${k}`, proxies);
+          const widget = pickTsWidget(exp);
+          if (widget){
+            selected = {widget, lang, g, k};
+            foundMeta = `kw='${k}', geo='${g||'GLOBAL'}', hl='${lang}'`;
+            break;
+          }
+        }catch(e){ log(`Explore fail (${k}/${lang}/${g||'GLOBAL'}): ${e.message||e}`, true); }
+      }
+      if (selected) break;
+    }
+    if (selected) break;
+  }
+
+  if (!selected) throw new Error('TIMESERIES widget not found');
+
+  const mlURL = `${base}/widgetdata/multiline?hl=${encodeURIComponent(selected.lang)}&tz=${tz}&token=${encodeURIComponent(selected.widget.token)}&req=${encodeURIComponent(JSON.stringify(selected.widget.request))}`;
+
   let last=null;
   for(const b of proxies){
     try{
       const u=buildProxiedUrl(b,mlURL);
-      log(`GET Trends data ${kw}: ${u.slice(0,140)}`);
+      log(`GET Trends data ${selected.k}: ${u.slice(0,140)} (${foundMeta})`);
       const r=await fetch(u);
       const t=await r.text();
       if(!r.ok){ last=new Error(`HTTP ${r.status}`); continue; }
@@ -466,6 +471,7 @@ async function run(){
       if(spike){log(`倍率サマリ: best×${fmt(multV)} at ${ts2(spike.peak_ts)}（min: ${ts2(spike.pre_min_ts)}）`);}
       else{log('倍率サマリ: 有効な上昇なし/データ不足');}
 
+      // LPチェック（必要時のみ）
       let lpInfo={lp_pct_est:null,lp_type:'unknown',locker_name:''};
       let needLP=strict&&lpRequired;
       if(needLP && lpAfterMult && !(multV && multV>=mult)){ needLP=false; tphSkip++; log('TopHolders: skip (mult未達)'); }
@@ -539,7 +545,10 @@ async function runCorrelation(){
       for(let i=1;i<px.length;i++){ if(!Number.isFinite(px[i])&&Number.isFinite(px[i-1])) px[i]=px[i-1]; }
       for(let i=1;i<tv.length;i++){ if(!Number.isFinite(tv[i])&&Number.isFinite(tv[i-1])) tv[i]=tv[i-1]; }
 
-      if(mode==='ret'){ px=toReturnsSeries(px); tv=toReturnsSeries(tv); }
+      if(mode==='ret'){ // 日次リターン同士
+        const toR=arr=>{const out=[];for(let i=1;i<arr.length;i++){const a=arr[i-1],b=arr[i];out.push(Number.isFinite(a)&&Number.isFinite(b)&&a>0&&b>0?(b/a-1)*100:NaN);}return out;};
+        px=toR(px); tv=toR(tv);
+      }
 
       let bestR=null, bestLag=0, r0=null;
       for(let lag=-L; lag<=L; lag++){
