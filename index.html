@@ -52,11 +52,13 @@
     <div class="ctl"><label>表示</label><div><input id="showAll" type="checkbox" checked> <span class="pill">全件表示（しきい値未達も出す）</span></div></div>
   </div>
 
-  <!-- ---- 期間 & CORS ---- -->
+  <!-- ---- 期間 & CORS / Trends API ---- -->
   <div class="row" style="margin-top:8px">
     <div class="ctl"><label>抽出期間（開始, カレンダー）</label><input id="dateStart" type="date"></div>
     <div class="ctl"><label>抽出期間（終了, カレンダー）</label><input id="dateEnd" type="date"></div>
-    <div class="ctl" style="min-width:260px"><label>（任意）CORS プロキシ（Ethplorer/Trends共通）</label><input id="cors" placeholder="https://your-worker.workers.dev/?url="></div>
+    <div class="ctl" style="min-width:260px"><label>（任意）CORS プロキシ（Ethplorer/Gecko 用）</label><input id="cors" placeholder="https://your-worker.workers.dev/?url="></div>
+    <!-- ★ 追加：TrendsはWorkers /series を第一選択 -->
+    <div class="ctl" style="min-width:320px"><label>（推奨）Trends API（Workers /series のURL）</label><input id="trApi" placeholder="https://<your>.workers.dev/series"></div>
     <div class="ctl" style="min-width:220px"><label>（任意）Ethplorer API key</label><input id="ethKey" placeholder="未入力なら freekey を使用"></div>
     <div class="ctl">
       <label>&nbsp;</label>
@@ -119,7 +121,7 @@
   <div style="height:14px"></div>
   <div id="wrapTable"></div>
 
-  <footer>© 2025 — Ethereum only｜データ: GeckoTerminal（日足OHLCV） / DexScreener（トレンド補助） / Ethplorer（TopHolders） / Google Trends（非公式エンドポイント）</footer>
+  <footer>© 2025 — Ethereum only｜データ: GeckoTerminal（日足OHLCV） / DexScreener（トレンド補助） / Ethplorer（TopHolders） / Google Trends（/series 経由推奨）</footer>
 </main>
 
 <script>
@@ -146,7 +148,7 @@ async function _fetchJson(u,{timeout=14000,label=''}={}){const ac=new AbortContr
 async function getJsonSmart(url,{label='',timeout=14000}={}){const h=new URL(url).hostname;const user=by('cors').value.trim();
   let bases;
   if(h.includes('geckoterminal.com')||h.includes('dexscreener.com')) bases=['','https://cors.isomorphic-git.org/'];
-  else if(h.includes('ethplorer.io')||h.includes('trends.google.com')) bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
+  else if(h.includes('ethplorer.io')) bases=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
   else bases=['','https://cors.isomorphic-git.org/'];
   let last;
   for(const b of bases){const u=buildProxiedUrl(b,url);try{return await _fetchJson(u,{timeout,label});}
@@ -167,6 +169,10 @@ function datePrefToUnix(){let s=dateToStartUnix(by('dateStart').value);let e=dat
 let lastEth=0,lastGecko=0,geckoPenalty=0;
 const ETHPLORER_MIN_INTERVAL = 4000;
 let GECKO_MIN_INTERVAL=700;
+
+/* ★ Trends 呼び出しのスロットリング */
+let lastTr=0;
+const TRENDS_MIN_INTERVAL = 1200;
 
 /* ============ トレンド種取得 ============ */
 function parseGeckoTokenId(id){ if(!id)return ''; const parts=id.split('_'); return parts[parts.length-1]?.toLowerCase()||''; }
@@ -298,78 +304,87 @@ function estimateLP(hs=[]){
 }
 
 /* ============ Google Trends ============ */
-/* 探索→ウィジェット→マルチラインの順で取得。CORSは共通入力を使用 */
-function trendsExploreReq({kw,geo,time,hl='ja',tz=0}){
-  const req={
-    comparisonItem:[{keyword:kw,geo:geo||'',time}],
-    category:0, property:''
-  };
-  const url=`https://trends.google.com/trends/api/explore?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${encodeURIComponent(JSON.stringify(req))}`;
-  return url;
-}
+// ★ まずは Workers /series を使う（入力 trApi）
 function stripXSSI(s){ return typeof s==='string' && s.startsWith(")]}',") ? s.slice(5) : s; }
+
 async function getTrendsSeries({kw,geo,startTs,endTs,hl='ja',tz=0}){
-  const start=new Date(startTs*1000), end=new Date((endTs-1)*1000);
-  const time=`${start.getUTCFullYear()}-${String(start.getUTCMonth()+1).padStart(2,'0')}-${String(start.getUTCDate()).padStart(2,'0')} ${end.getUTCFullYear()}-${String(end.getUTCMonth()+1).padStart(2,'0')}-${String(end.getUTCDate()).padStart(2,'0')}`;
-  // step1: explore
-  const exRaw=await getJsonSmart(trendsExploreReq({kw,geo,time,hl,tz}),{label:`Trends explore ${kw}`}).catch(async e=>{
-    // Googleは application/json で返さないので fallback: text → JSON
-    const u=trendsExploreReq({kw,geo,time,hl,tz});
-    const h=new URL(u).hostname; const user=by('cors').value.trim();
-    const proxies=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
-    let last=null;
-    for(const b of proxies){
-      try{
-        const u2=buildProxiedUrl(b,u);
-        const r=await fetch(u2); const t=await r.text();
-        const j=JSON.parse(stripXSSI(t));
-        return j;
-      }catch(err){ last=err; log(`Trends explore retry via ${b||'DIRECT'}: ${err}`,true); }
-    }
-    throw last||e;
-  });
-  const explore=exRaw?.widgets?exRaw:JSON.parse(stripXSSI(exRaw));
-  const widget=(explore.widgets||[]).find(w=>w?.id?.toUpperCase().includes('TIMESERIES'));
-  if(!widget) throw new Error('Trends: widget not found');
-  const req=encodeURIComponent(JSON.stringify(widget.request));
-  const token=encodeURIComponent(widget.token);
-  const url=`https://trends.google.com/trends/api/widgetdata/multiline?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${req}&token=${token}`;
-  // step2: data
-  const dataRaw=await (async()=>{
-    try{ return await getJsonSmart(url,{label:`Trends data ${kw}`}); }
-    catch(e){
-      const h=new URL(url).hostname; const user=by('cors').value.trim();
-      const proxies=[user||'','https://cors.isomorphic-git.org/','https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
-      for(const b of proxies){
-        try{
-          const u2=buildProxiedUrl(b,url);
-          const r=await fetch(u2); const t=await r.text();
-          return JSON.parse(stripXSSI(t));
-        }catch(err){ log(`Trends data retry via ${b||'DIRECT'}: ${err}`,true); }
-      }
-      throw e;
-    }
+  // スロットリング
+  const wait=Math.max(0,lastTr+TRENDS_MIN_INTERVAL-Date.now());
+  if(wait>0) await sleep(wait + jitter(80,260));
+  lastTr=Date.now();
+
+  const api = (by('trApi').value||'').trim();
+  if (api) {
+    // Workers /series にそのまま委譲
+    const u = new URL(api);
+    if (!u.pathname.endsWith('/series')) u.pathname = (u.pathname.replace(/\/+$/,'') || '') + '/series'; // 保険
+    u.searchParams.set('kw', kw);
+    u.searchParams.set('geo', geo || '');
+    u.searchParams.set('hl', hl);
+    u.searchParams.set('start', new Date(startTs*1000).toISOString().slice(0,10));
+    u.searchParams.set('end', new Date((endTs-1)*1000).toISOString().slice(0,10));
+    const r = await fetch(u.toString(), {mode:'cors'});
+    if (!r.ok) throw new Error(`Series(worker) HTTP ${r.status}`);
+    const j = await r.json();
+    const pts = j?.points || [];
+    return pts.map(p=>({ts: Math.floor(p.ts/1000), v: +p.value||0}));
+  }
+
+  // ★ フォールバック：直接叩く（textで受けて XSSI 除去 → JSON）
+  const time = (()=> {
+    const s=new Date(startTs*1000), e=new Date((endTs-1)*1000);
+    const s9=`${s.getUTCFullYear()}-${String(s.getUTCMonth()+1).padStart(2,'0')}-${String(s.getUTCDate()).padStart(2,'0')}`;
+    const e9=`${e.getUTCFullYear()}-${String(e.getUTCMonth()+1).padStart(2,'0')}-${String(e.getUTCDate()).padStart(2,'0')}`;
+    return `${s9} ${e9}`;
   })();
-  const series=((dataRaw?.default?.timelineData)||[]).map(d=>({ts:+d.time, v:+(d.value?.[0]??0)}));
-  return series;
+
+  const exploreReq = { comparisonItem:[{keyword:kw, geo:geo||'', time}], category:0, property:'' };
+  const base = 'https://trends.google.com/trends/api';
+  const expURL = `${base}/explore?hl=${encodeURIComponent(hl)}&tz=${tz}&req=${encodeURIComponent(JSON.stringify(exploreReq))}`;
+
+  const textFetch = async (url,label)=>{
+    // 直接 or 汎用CORSプロキシ（順に試行）
+    const user=by('cors').value.trim();
+    const bases=[user||'', 'https://cors.isomorphic-git.org/', 'https://corsproxy.io/?url=', 'https://api.allorigins.win/raw?url='];
+    let last;
+    for(const b of bases){
+      try{
+        const u=buildProxiedUrl(b,url);
+        log(`GET ${label}: ${u.slice(0,140)}`);
+        const r=await fetch(u);
+        const t=await r.text();              // ★ 常に text で取得
+        if (!r.ok) { last=new Error(`HTTP ${r.status}`); continue; }
+        if (/^\s*</.test(t)) { last=new Error('HTML response'); continue; } // ★ HTMLは即NG
+        return t;
+      }catch(e){ last=e; log(`…via ${b||'DIRECT'} failed: ${e.message||e}`,true); }
+    }
+    throw last||new Error('All proxies failed');
+  };
+
+  try{
+    const expTxt = await textFetch(expURL, `Trends explore ${kw}`);
+    const exp = JSON.parse(stripXSSI(expTxt));
+    const widget=(exp.widgets||[]).find(w=>w?.id==='TIMESERIES'||w?.type==='TIMESERIES')||(exp.widgets||[]).find(w=>w?.type==='MULTILINE');
+    if(!widget) throw new Error('TIMESERIES widget not found');
+    const mlURL = `${base}/widgetdata/multiline?hl=${encodeURIComponent(hl)}&tz=${tz}&token=${encodeURIComponent(widget.token)}&req=${encodeURIComponent(JSON.stringify(widget.request))}`;
+    const mlTxt = await textFetch(mlURL, `Trends data ${kw}`);
+    const data = JSON.parse(stripXSSI(mlTxt));
+    const series=((data?.default?.timelineData)||[]).map(d=>({ts:+d.time, v:+(d.value?.[0]??0)}));
+    return series;
+  }catch(e){
+    throw new Error(`Trends fetch failed: ${e.message||e}`);
+  }
 }
+
 function seriesToMapDaily(arr){const m=new Map(); for(const x of arr){ const d=new Date(x.ts*1000); const k=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; m.set(k,+x.v); } return m;}
 function ohlcToMapClose(arr){const m=new Map(); for(const x of arr){ const d=new Date(x.ts*1000); const k=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; m.set(k,+x.c); } return m;}
 
-/* 既存: 数値配列の%リターン（参考用） */
+/* 既存: 数値配列の%リターン */
 function toReturns(vals){const out=[]; for(let i=1;i<vals.length;i++){ const a=vals[i-1], b=vals[i]; if(a>0 && b>0){ out.push((b/a-1)*100); } } return out; }
+/* NaN維持版（日付整列を壊さない） */
+function toReturnsSeries(vals){const out=[]; for(let i=1;i<vals.length;i++){ const a=vals[i-1], b=vals[i]; out.push(Number.isFinite(a)&&Number.isFinite(b)&&a>0&&b>0 ? (b/a-1)*100 : NaN);} return out;}
 
-/* 追加: “NaNを保持”して日付整列を壊さない%リターン系列（runCorrelationで使用） */
-function toReturnsSeries(vals){
-  const out=[];
-  for(let i=1;i<vals.length;i++){
-    const a=vals[i-1], b=vals[i];
-    out.push(Number.isFinite(a)&&Number.isFinite(b)&&a>0&&b>0 ? (b/a-1)*100 : NaN);
-  }
-  return out;
-}
-
-function alignAndLag(xArr,yArr,lag){ // lag>0: y を未来へ（トレンドが先行）
+function alignAndLag(xArr,yArr,lag){ // lag>0: y を未来へ
   const n=Math.min(xArr.length, yArr.length);
   const xs=[], ys=[];
   if(lag===0){
@@ -410,7 +425,8 @@ async function run(){
 
   by('params').textContent=[
     `Params: days=${days}, mult=${mult}, LP>=${lpmin}%, lpRequired=${lpRequired}, showAll=${showAll}`,
-    `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`
+    `Period: start=${startTs||'-'} (${startTs?new Date(startTs*1000).toLocaleDateString():''}), end=${endTs||'-'} (${endTs?new Date(endTs*1000).toLocaleDateString():''})`,
+    `Trends API: ${by('trApi').value||'(fallback: direct via proxies)'}`
   ].join('\n');
 
   try{
@@ -518,13 +534,7 @@ async function runCorrelation(){
       for(let i=1;i<px.length;i++){ if(!Number.isFinite(px[i])&&Number.isFinite(px[i-1])) px[i]=px[i-1]; }
       for(let i=1;i<tv.length;i++){ if(!Number.isFinite(tv[i])&&Number.isFinite(tv[i-1])) tv[i]=tv[i-1]; }
 
-      // === ここを最小修正 ===
-      if(mode==='ret'){
-        // 配列長を保ったまま日次リターン系列へ（NaNは保持→後段で除外）
-        px = toReturnsSeries(px);
-        tv = toReturnsSeries(tv);
-      }
-      // フィルタ（.filter）で長さを変えない。ペア選別は alignAndLag で実施
+      if(mode==='ret'){ px=toReturnsSeries(px); tv=toReturnsSeries(tv); }
 
       // ラグ探索
       let bestR=null, bestLag=0, r0=null;
@@ -546,6 +556,8 @@ async function runCorrelation(){
     }catch(e){
       log(`Trends取得失敗: ${r.trend_kw}｜${e.message||e}`,true);
     }
+    // ★ 呼び出し間ディレイで 429/403 をさらに回避
+    await sleep(300 + Math.random()*200);
   }
   render(LAST_ROWS,{strict:by('strict').checked,lpmin:+by('lpmin').value||80,showAll:by('showAll').checked});
   by('progress').textContent='相関計算 完了';
